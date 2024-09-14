@@ -1,0 +1,981 @@
+            const t = Math.min(time / duration, 1);
+            character.model.position.lerpVectors(startPosition, targetPosition, t);
+            teleportEffect.position.copy(character.model.position);
+            teleportEffect.scale.setScalar(1 - t);
+
+            if (t === 1) {
+                game.scene.remove(teleportEffect);
+                return false;
+            }
+            return true;
+        }
+
+        game.particles.push({ update: updateTeleport });
+        game.audio.effects.teleport.play();
+    }
+
+    // Create fusion dance effect
+    function fusionDance(character1, character2) {
+        const midpoint = new THREE.Vector3().addVectors(character1.model.position, character2.model.position).multiplyScalar(0.5);
+        const fusionLight = new THREE.PointLight(0xffffff, 1, 10);
+        fusionLight.position.copy(midpoint);
+        game.scene.add(fusionLight);
+
+        const fusionGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+        const fusionMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color1: { value: new THREE.Color(0xffff00) },
+                color2: { value: new THREE.Color(0x00ffff) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color1;
+                uniform vec3 color2;
+                varying vec2 vUv;
+                void main() {
+                    vec3 color = mix(color1, color2, sin(time * 10.0 + vUv.x * 20.0) * 0.5 + 0.5);
+                    float intensity = 0.5 + 0.5 * sin(time * 20.0 + vUv.y * 40.0);
+                    gl_FragColor = vec4(color * intensity, 1.0);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const fusionSphere = new THREE.Mesh(fusionGeometry, fusionMaterial);
+        fusionSphere.position.copy(midpoint);
+        game.scene.add(fusionSphere);
+
+        let time = 0;
+        const duration = 5;
+        function updateFusion(delta) {
+            time += delta;
+            fusionSphere.material.uniforms.time.value = time;
+            fusionSphere.scale.setScalar(1 + Math.sin(time * 5) * 0.2);
+            fusionLight.intensity = 1 + Math.sin(time * 10) * 0.5;
+
+            if (time >= duration) {
+                game.scene.remove(fusionLight);
+                game.scene.remove(fusionSphere);
+                completeFusion(character1, character2, midpoint);
+                return false;
+            }
+            return true;
+        }
+
+        game.particles.push({ update: updateFusion });
+        game.audio.effects.fusion.play();
+    }
+
+    function completeFusion(character1, character2, position) {
+        // Create a new fused character
+        const fusedCharacter = new Character("Fusion", createFusedModel(character1, character2));
+        fusedCharacter.model.position.copy(position);
+        game.scene.add(fusedCharacter.model);
+
+        // Remove original characters
+        game.scene.remove(character1.model);
+        game.scene.remove(character2.model);
+        game.characters = game.characters.filter(c => c !== character1 && c !== character2);
+        game.characters.push(fusedCharacter);
+
+        // Boost stats for fused character
+        fusedCharacter.power = (character1.power + character2.power) * 1.5;
+        fusedCharacter.speed = Math.max(character1.speed, character2.speed) * 1.2;
+        fusedCharacter.health = (character1.health + character2.health) * 2;
+
+        // Add special fusion abilities
+        fusedCharacter.techniques.push(new Technique("Fusion Blast", 100, 50, fusionBlastAnimation));
+    }
+
+    function createFusedModel(character1, character2) {
+        // Implement logic to combine visual elements from both characters
+        // This is a simplified version
+        const fusedModel = new THREE.Group();
+
+        const bodyGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+        const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        fusedModel.add(body);
+
+        const hairGeometry = new THREE.ConeGeometry(0.4, 0.6, 32);
+        const hairMaterial = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+        const hair = new THREE.Mesh(hairGeometry, hairMaterial);
+        hair.position.y = 0.5;
+        fusedModel.add(hair);
+
+        return fusedModel;
+    }
+
+    // Dragon Ball radar
+    function createDragonBallRadar() {
+        const radarGeometry = new THREE.CircleGeometry(0.1, 32);
+        const radarMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+        const radar = new THREE.Mesh(radarGeometry, radarMaterial);
+        radar.position.set(0.8, -0.8, -1);
+        game.camera.add(radar);
+
+        const blipGeometry = new THREE.CircleGeometry(0.01, 16);
+        const blipMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+
+        function updateRadar() {
+            radar.children.forEach(child => radar.remove(child));
+            game.dragonBalls.forEach(ball => {
+                const direction = ball.position.clone().sub(game.player.model.position);
+                const distance = direction.length();
+                if (distance < 50) {
+                    const blip = new THREE.Mesh(blipGeometry, blipMaterial);
+                    blip.position.set(
+                        (direction.x / distance) * 0.08,
+                        (direction.z / distance) * 0.08,
+                        0.01
+                    );
+                    radar.add(blip);
+                }
+            });
+        }
+
+        return updateRadar;
+    }
+
+    // Create Dragon Ball
+    function createDragonBall(stars) {
+        const ballGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+        const ballMaterial = new THREE.MeshPhongMaterial({ color: 0xffa500 });
+        const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+
+        const starsGroup = new THREE.Group();
+        for (let i = 0; i < stars; i++) {
+            const starGeometry = new THREE.CircleGeometry(0.02, 16);
+            const starMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const star = new THREE.Mesh(starGeometry, starMaterial);
+            star.position.setFromSphericalCoords(0.2, Math.random() * Math.PI, Math.random() * Math.PI * 2);
+            star.lookAt(ball.position);
+            starsGroup.add(star);
+        }
+        ball.add(starsGroup);
+
+        return ball;
+    }
+
+    // Summon Shenron
+    function summonShenron(dragonBalls) {
+        const shenronGeometry = new THREE.CylinderGeometry(0.5, 0.1, 20, 32);
+        const shenronMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        const shenron = new THREE.Mesh(shenronGeometry, shenronMaterial);
+        shenron.position.y = 10;
+        game.scene.add(shenron);
+
+        const eyesGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+        const eyesMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        const leftEye = new THREE.Mesh(eyesGeometry, eyesMaterial);
+        const rightEye = new THREE.Mesh(eyesGeometry, eyesMaterial);
+        leftEye.position.set(0.2, 9.8, 0.4);
+        rightEye.position.set(-0.2, 9.8, 0.4);
+        shenron.add(leftEye, rightEye);
+
+        dragonBalls.forEach(ball => game.scene.remove(ball));
+
+        let time = 0;
+        function animateShenron(delta) {
+            time += delta;
+            shenron.rotation.y = Math.sin(time) * 0.1;
+            shenron.position.y = 10 + Math.sin(time * 2) * 0.5;
+            return true;
+        }
+
+        game.particles.push({ update: animateShenron });
+        game.audio.effects.shenron.play();
+
+        return new Promise(resolve => {
+            setTimeout(() => {
+                game.scene.remove(shenron);
+                resolve();
+            }, 10000);
+        });
+    }
+
+    // Create energy shield
+    function createEnergyShield(character) {
+        const shieldGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const shieldMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: new THREE.Color(0x00ffff) }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normal;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                    gl_FragColor = vec4(color, 0.5) * intensity;
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const shield = new THREE.Mesh(shieldGeometry, shieldMaterial);
+        character.model.add(shield);
+
+        let time = 0;
+        function updateShield(delta) {
+            time += delta;
+            shield.material.uniforms.time.value = time;
+            shield.scale.setScalar(1 + Math.sin(time * 5) * 0.1);
+            return true;
+        }
+
+        game.particles.push({ update: updateShield });
+        game.audio.effects.shield.play();
+
+        return shield;
+    }
+
+    // Create power-up effect
+    function powerUp(character) {
+        const auraGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const auraMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: new THREE.Color(0xffff00) }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normal;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                    intensity += 0.5 * sin(time * 20.0 + vNormal.y * 10.0);
+                    gl_FragColor = vec4(color, 0.5) * intensity;
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const aura = new THREE.Mesh(auraGeometry, auraMaterial);
+        character.model.add(aura);
+
+        let time = 0;
+        let duration = 5;
+        function updatePowerUp(delta) {
+            time += delta;
+            aura.material.uniforms.time.value = time;
+            aura.scale.setScalar(1 + Math.sin(time * 10) * 0.2);
+
+            if (time >= duration) {
+                character.model.remove(aura);
+                character.power *= 2;
+                character.speed *= 1.5;
+                return false;
+            }
+            return true;
+        }
+
+        game.particles.push({ update: updatePowerUp });
+        game.audio.effects.powerUp.play();
+    }
+
+    // Create destructible environment
+    function createDestructibleEnvironment() {
+        const grid = new THREE.Group();
+        for (let x = -5; x <= 5; x++) {
+            for (let z = -5; z <= 5; z++) {
+                const cubeGeometry = new THREE.BoxGeometry(1, 1, 1);
+                const cubeMaterial = new THREE.MeshPhongMaterial({ color: 0x808080 });
+                const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+                cube.position.set(x, 0.5, z);
+                grid.add(cube);
+            }
+        }
+        game.scene.add(grid);
+
+        function destroyCube(position) {
+            const cube = grid.children.find(c => 
+                c.position.distanceTo(position) < 0.5
+            );
+            if (cube) {
+                grid.remove(cube);
+                createDebris(cube.position);
+            }
+        }
+
+        return destroyCube;
+    }
+
+    function createDebris(position) {
+        const debrisCount = 10;
+        for (let i = 0; i < debrisCount; i++) {
+            const debrisGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const debrisMaterial = new THREE.MeshPhongMaterial({ color: 0x808080 });
+            const debris = new THREE.Mesh(debrisGeometry, debrisMaterial);
+            debris.position.copy(position);
+            game.scene.add(debris);
+
+            const velocity = new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() * 0.5 + 0.5,
+                Math.random() - 0.5
+            ).multiplyScalar(5);
+
+            function updateDebris(delta // Apply gravity
+                debris.position.add(velocity.clone().multiplyScalar(delta));
+                debris.rotation.x += Math.random() * 5 * delta;
+                debris.rotation.y += Math.random() * 5 * delta;
+                debris.rotation.z += Math.random() * 5 * delta;
+
+                if (debris.position.y < -10) {
+                    game.scene.remove(debris);
+                    return false;
+                }
+                return true;
+            }
+
+            game.particles.push({ update: updateDebris });
+        }
+    }
+
+    // Create energy attack
+    function createEnergyAttack(character, type) {
+        const position = character.model.position.clone();
+        position.y += 1; // Adjust to character's hand position
+        const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(character.model.quaternion);
+
+        let geometry, material, speed, damage;
+
+        switch (type) {
+            case 'kiBlast':
+                geometry = new THREE.SphereGeometry(0.2, 16, 16);
+                material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                speed = 30;
+                damage = 10;
+                break;
+            case 'kamehameha':
+                geometry = new THREE.CylinderGeometry(0.5, 0.5, 10, 32);
+                material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0 },
+                        color: { value: new THREE.Color(0x00ffff) }
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float time;
+                        uniform vec3 color;
+                        varying vec2 vUv;
+                        void main() {
+                            float intensity = 0.5 + 0.5 * sin(time * 10.0 + vUv.x * 20.0);
+                            gl_FragColor = vec4(color * intensity, 0.7);
+                        }
+                    `,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending
+                });
+                speed = 50;
+                damage = 50;
+                break;
+            case 'spiritBomb':
+                geometry = new THREE.SphereGeometry(1, 32, 32);
+                material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0 },
+                        size: { value: 1 }
+                    },
+                    vertexShader: `
+                        uniform float time;
+                        uniform float size;
+                        varying vec2 vUv;
+                        void main() {
+                            vUv = uv;
+                            vec3 pos = position;
+                            pos += normal * (sin(time * 5.0 + position.y * 10.0) * 0.1);
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos * size, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float time;
+                        varying vec2 vUv;
+                        void main() {
+                            vec3 color = vec3(0.5, 0.8, 1.0);
+                            float intensity = 0.5 + 0.5 * sin(time * 5.0 + vUv.y * 10.0);
+                            gl_FragColor = vec4(color * intensity, 0.7);
+                        }
+                    `,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending
+                });
+                speed = 20;
+                damage = 100;
+                break;
+        }
+
+        const attack = new THREE.Mesh(geometry, material);
+        attack.position.copy(position);
+        attack.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+        game.scene.add(attack);
+
+        const projectile = {
+            model: attack,
+            position: position,
+            velocity: direction.multiplyScalar(speed),
+            damage: damage,
+            update: function(delta) {
+                this.position.add(this.velocity.clone().multiplyScalar(delta));
+                this.model.position.copy(this.position);
+                if (this.model.material.uniforms) {
+                    this.model.material.uniforms.time.value += delta;
+                }
+                return true;
+            }
+        };
+        game.projectiles.push(projectile);
+
+        // Play sound effect
+        game.audio.effects[type].play();
+    }
+
+    // Create transformation effect
+    function transformCharacter(character, form) {
+        const transformationDuration = 3;
+        let time = 0;
+
+        const aura = createAura(form);
+        character.model.add(aura);
+
+        function updateTransformation(delta) {
+            time += delta;
+            
+            // Scale character model
+            const scale = 1 + Math.sin(time * Math.PI / transformationDuration) * 0.2;
+            character.model.scale.setScalar(scale);
+
+            // Update aura
+            aura.material.uniforms.time.value = time;
+
+            if (time >= transformationDuration) {
+                character.model.scale.setScalar(1.2); // Final size increase
+                applyTransformationEffects(character, form);
+                return false;
+            }
+            return true;
+        }
+
+        game.particles.push({ update: updateTransformation });
+        game.audio.effects.transformation.play();
+    }
+
+    function createAura(form) {
+        const auraGeometry = new THREE.SphereGeometry(1.5, 32, 32);
+        const auraMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: getAuraColor(form) }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normal;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                    intensity += 0.5 * sin(time * 20.0 + vNormal.y * 10.0);
+                    gl_FragColor = vec4(color, 0.5) * intensity;
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        return new THREE.Mesh(auraGeometry, auraMaterial);
+    }
+
+    function getAuraColor(form) {
+        switch (form) {
+            case 'superSaiyan': return new THREE.Color(0xffff00);
+            case 'superSaiyanGod': return new THREE.Color(0xff0000);
+            case 'superSaiyanBlue': return new THREE.Color(0x0000ff);
+            default: return new THREE.Color(0xffffff);
+        }
+    }
+
+    function applyTransformationEffects(character, form) {
+        switch (form) {
+            case 'superSaiyan':
+                character.power *= 50;
+                character.speed *= 2;
+                changeHairColor(character, 0xffff00);
+                break;
+            case 'superSaiyanGod':
+                character.power *= 100;
+                character.speed *= 3;
+                changeHairColor(character, 0xff0000);
+                break;
+            case 'superSaiyanBlue':
+                character.power *= 200;
+                character.speed *= 4;
+                changeHairColor(character, 0x0000ff);
+                break;
+        }
+    }
+
+    function changeHairColor(character, color) {
+        character.model.traverse((child) => {
+            if (child.isMesh && child.name === 'hair') {
+                child.material.color.setHex(color);
+            }
+        });
+    }
+
+    // Create fusion dance effect
+    function fusionDance(character1, character2) {
+        const midpoint = new THREE.Vector3().addVectors(character1.model.position, character2.model.position).multiplyScalar(0.5);
+        const fusionLight = new THREE.PointLight(0xffffff, 1, 10);
+        fusionLight.position.copy(midpoint);
+        game.scene.add(fusionLight);
+
+        const fusionGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+        const fusionMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color1: { value: new THREE.Color(0xffff00) },
+                color2: { value: new THREE.Color(0x00ffff) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color1;
+                uniform vec3 color2;
+                varying vec2 vUv;
+                void main() {
+                    vec3 color = mix(color1, color2, sin(time * 10.0 + vUv.x * 20.0) * 0.5 + 0.5);
+                    float intensity = 0.5 + 0.5 * sin(time * 20.0 + vUv.y * 40.0);
+                    gl_FragColor = vec4(color * intensity, 1.0);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const fusionSphere = new THREE.Mesh(fusionGeometry, fusionMaterial);
+        fusionSphere.position.copy(midpoint);
+        game.scene.add(fusionSphere);
+
+        let time = 0;
+        const duration = 5;
+        function updateFusion(delta) {
+            time += delta;
+            fusionSphere.material.uniforms.time.value = time;
+            fusionSphere.scale.setScalar(1 + Math.sin(time * 5) * 0.2);
+            fusionLight.intensity = 1 + Math.sin(time * 10) * 0.5;
+
+            if (time >= duration) {
+                game.scene.remove(fusionLight);
+                game.scene.remove(fusionSphere);
+                completeFusion(character1, character2, midpoint);
+                return false;
+            }
+            return true;
+        }
+
+        game.particles.push({ update: updateFusion });
+        game.audio.effects.fusion.play();
+    }
+
+    function completeFusion(character1, character2, position) {
+        // Create a new fused character
+        const fusedCharacter = new Character("Fusion", createFusedModel(character1, character2));
+        fusedCharacter.model.position.copy(position);
+        game.scene.add(fusedCharacter.model);
+
+        // Remove original characters
+        game.scene.remove(character1.model);
+        game.scene.remove(character2.model);
+        game.characters = game.characters.filter(c => c !== character1 && c !== character2);
+        game.characters.push(fusedCharacter);
+
+        // Boost stats for fused character
+        fusedCharacter.power = (character1.power + character2.power) * 1.5;
+        fusedCharacter.speed = Math.max(character1.speed, character2.speed) * 1.2;
+        fusedCharacter.health = (character1.health + character2.health) * 2;
+
+        // Add special fusion abilities
+        fusedCharacter.techniques.push(new Technique("Fusion Blast", 100, 50, fusionBlastAnimation));
+    }
+
+    function createFusedModel(character1, character2) {
+        // Implement logic to combine visual elements from both characters
+        const fusedModel = new THREE.Group();
+
+        // Body
+        const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.5, 1.5, 32);
+        const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xffff00 });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        fusedModel.add(body);
+
+        // Head
+        const headGeometry = new THREE.SphereGeometry(0.4, 32, 32);
+        const headMaterial = new THREE.MeshPhongMaterial({ color: 0xffd700 });
+        const head = new THREE.Mesh(headGeometry, headMaterial);
+        head.position.y = 1;
+        fusedModel.add(head);
+
+        // Hair
+        const hairGeometry = new THREE.ConeGeometry(0.4, 0.6, 32);
+        const hairMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+        const hair = new THREE.Mesh(hairGeometry, hairMaterial);
+        hair.position.y = 1.5;
+        fusedModel.add(hair);
+
+        // Eyes
+        const eyeGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+        const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+        leftEye.position.set(0.15, 1.1, 0.3);
+        const rightEye = leftEye.clone();
+        rightEye.position.x = -0.15;
+        fusedModel.add(leftEye, rightEye);
+
+        // Pupils
+        const pupilGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+        const pupilMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+        const leftPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+        leftPupil.position.set(0.15, 1.1, 0.35);
+        const rightPupil = leftPupil.clone();
+        rightPupil.position.x = -0.15;
+        fusedModel.add(leftPupil, rightPupil);
+
+        return fusedModel;
+    }
+
+    // Create Dragon Ball radar
+    function createDragonBallRadar() {
+        const radarGeometry = new THREE.CircleGeometry(0.1, 32);
+        const radarMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.        DoubleSide
+    });
+    const fusedModel = new THREE.Mesh(fusedGeometry, fusedMaterial);
+    fusedModel.position.copy(midpoint);
+    game.scene.add(fusedModel);
+
+    return fusedModel;
+}
+
+// Create Kamehameha wave
+function createKamehameha(character) {
+    const geometry = new THREE.CylinderGeometry(0.1, 0.5, 10, 32);
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            time: { value: 0 },
+            color: { value: new THREE.Color(0x00ffff) }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float time;
+            uniform vec3 color;
+            varying vec2 vUv;
+            void main() {
+                float intensity = 0.5 + 0.5 * sin(time * 10.0 + vUv.x * 20.0);
+                gl_FragColor = vec4(color * intensity, 0.7);
+            }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending
+    });
+    const kamehameha = new THREE.Mesh(geometry, material);
+    kamehameha.position.copy(character.model.position);
+    kamehameha.position.y += 1; // Adjust to character's hand position
+    kamehameha.rotation.x = Math.PI / 2;
+    game.scene.add(kamehameha);
+
+    const speed = 50;
+    const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(character.model.quaternion);
+
+    function updateKamehameha(delta) {
+        kamehameha.position.add(direction.clone().multiplyScalar(speed * delta));
+        kamehameha.material.uniforms.time.value += delta;
+
+        // Check for collisions
+        game.characters.forEach(target => {
+            if (target !== character && target.model.position.distanceTo(kamehameha.position) < 1) {
+                target.takeDamage(50);
+                game.scene.remove(kamehameha);
+                return false;
+            }
+        });
+
+        // Remove if too far
+        if (kamehameha.position.distanceTo(character.model.position) > 100) {
+            game.scene.remove(kamehameha);
+            return false;
+        }
+
+        return true;
+    }
+
+    game.projectiles.push({ update: updateKamehameha });
+    game.audio.effects.kamehameha.play();
+}
+
+// Create Spirit Bomb
+function createSpiritBomb(character) {
+    const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            time: { value: 0 },
+            size: { value: 0.5 }
+        },
+        vertexShader: `
+            uniform float time;
+            uniform float size;
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                vec3 pos = position;
+                pos += normal * (sin(time * 5.0 + position.y * 10.0) * 0.1);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos * size, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float time;
+            varying vec2 vUv;
+            void main() {
+                vec3 color = vec3(0.5, 0.8, 1.0);
+                float intensity = 0.5 + 0.5 * sin(time * 5.0 + vUv.y * 10.0);
+                gl_FragColor = vec4(color * intensity, 0.7);
+            }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending
+    });
+    const spiritBomb = new THREE.Mesh(geometry, material);
+    spiritBomb.position.set(0, 2, 0);
+    character.model.add(spiritBomb);
+
+    let size = 0.5;
+    let charging = true;
+
+    function updateSpiritBomb(delta) {
+        if (charging) {
+            size += delta * 0.5;
+            spiritBomb.material.uniforms.size.value = size;
+            spiritBomb.material.uniforms.time.value += delta;
+
+            if (size >= 5) {
+                charging = false;
+                launchSpiritBomb();
+            }
+        }
+    }
+
+    function launchSpiritBomb() {
+        character.model.remove(spiritBomb);
+        const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(character.model.quaternion);
+        const position = character.model.position.clone().add(new THREE.Vector3(0, 2, 0));
+
+        function updateLaunchedSpiritBomb(delta) {
+            spiritBomb.position.add(direction.clone().multiplyScalar(10 * delta));
+            spiritBomb.material.uniforms.time.value += delta;
+
+            // Check for collisions
+            game.characters.forEach(target => {
+                if (target !== character && target.model.position.distanceTo(spiritBomb.position) < 2) {
+                    target.takeDamage(100);
+                    game.scene.remove(spiritBomb);
+                    return false;
+                }
+            });
+
+            // Remove if too far
+            if (spiritBomb.position.distanceTo(character.model.position) > 100) {
+                game.scene.remove(spiritBomb);
+                return false;
+            }
+
+            return true;
+        }
+
+        game.projectiles.push({ update: updateLaunchedSpiritBomb });
+        game.scene.add(spiritBomb);
+        game.audio.effects.spiritBomb.play();
+    }
+
+    return updateSpiritBomb;
+}
+
+// Create Instant Transmission effect
+function instantTransmission(character, targetPosition) {
+    const startPosition = character.model.position.clone();
+    const distance = startPosition.distanceTo(targetPosition);
+    const duration = 0.5;
+
+    const teleportEffect = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 32, 32),
+        new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.5
+        })
+    );
+    teleportEffect.position.copy(startPosition);
+    game.scene.add(teleportEffect);
+
+    let time = 0;
+    function updateTeleport(delta) {
+        time += delta;
+        const t = Math.min(time / duration, 1);
+        character.model.position.lerpVectors(startPosition, targetPosition, t);
+        teleportEffect.position.copy(character.model.position);
+        teleportEffect.scale.setScalar(1 - t);
+
+        if (t === 1) {
+            game.scene.remove(teleportEffect);
+            return false;
+        }
+        return true;
+    }
+
+    game.particles.push({ update: updateTeleport });
+    game.audio.effects.teleport.play();
+}
+
+// Create Super Saiyan transformation
+function transformSuperSaiyan(character) {
+    const auraGeometry = new THREE.SphereGeometry(1.5, 32, 32);
+    const auraMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            time: { value: 0 },
+            color: { value: new THREE.Color(0xffff00) }
+        },
+        vertexShader: `
+            varying vec3 vNormal;
+            void main() {
+                vNormal = normal;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float time;
+            uniform vec3 color;
+            varying vec3 vNormal;
+            void main() {
+                float intensity = pow(0.8 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                intensity += 0.5 * sin(time * 20.0 + vNormal.y * 10.0);
+                gl_FragColor = vec4(color, 0.5) * intensity;
+            }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending
+    });
+    const aura = new THREE.Mesh(auraGeometry, auraMaterial);
+    character.model.add(aura);
+
+    // Change hair color
+    character.model.traverse((child) => {
+        if (child.isMesh && child.name === 'hair') {
+            child.material.color.setHex(0xffff00);
+        }
+    });
+
+    character.power *= 50;
+    character.speed *= 2;
+
+    function updateSuperSaiyan(delta) {
+        aura.material.uniforms.time.value += delta;
+        return true;
+    }
+
+    game.particles.push({ update: updateSuperSaiyan });
+    game.audio.effects.powerUp.play();
+}
+
+// Main game loop
+function gameLoop() {
+    requestAnimationFrame(gameLoop);
+    const delta = game.clock.getDelta();
+
+    updateGame(delta);
+    renderGame();
+}
+
+// Update game state
+function updateGame(delta) {
+    game.player.update(delta);
+    game.enemies.forEach(enemy => enemy.update(delta));
+    game.projectiles = game.projectiles.filter(projectile => projectile.update(delta));
+    game.particles = game.particles.filter(particle => particle.update(delta));
+    updateCamera();
+    checkCollisions();
+}
+
+// Render game
+function renderGame() {
+    game.renderer.render(game.scene, game.camera);
+    updateHUD();
+}
+
+// Update heads-up display
+function updateHUD() {
+    const hud = document.getElementById('hud');
+    hud.innerHTML = `
+        <div>Health: ${game.player.health}</div>
+        <div>Ki: ${game.player.ki}</div>
+        <div>Power Level: ${game.player.power}</div>
+    `;
+}
+
+// Initialize game
+function initGame() {
+    setupThreeJS();
+    setupAudio();
+    createPlayer();
+    createEnemies();
+    setupInput();
+    gameLoop();
+}
+
+// Start the game
+window.addEventListener('load', initGame);
+</script>
+</body>
+</html>
