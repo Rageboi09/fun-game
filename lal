@@ -1,4 +1,763 @@
-            const t = Math.min(time / duration, 1);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dragon Ball Multiverse: Ultimate Showdown</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-family: 'Arial', sans-serif; text-align: center; }
+        #hud { position: absolute; top: 10px; left: 10px; color: #fff; font-family: 'Arial', sans-serif; }
+    </style>
+</head>
+<body>
+    <div id="loading">Powering Up Dragon Ball Multiverse: Ultimate Showdown...</div>
+    <div id="hud"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js"></script>
+    <script>
+    // Game state
+    const game = {
+        scene: null,
+        camera: null,
+        renderer: null,
+        physics: null,
+        clock: new THREE.Clock(),
+        characters: [],
+        player: null,
+        enemies: [],
+        projectiles: [],
+        particles: [],
+        environment: [],
+        input: {
+            keys: {},
+            mouse: new THREE.Vector2(),
+            gamepad: null
+        },
+        audio: {},
+        ui: {
+            healthBar: null,
+            kiBar: null,
+            minimap: null
+        },
+        state: 'loading',
+        currentLevel: null,
+        levels: [
+            'Earth',
+            'Namek',
+            'Universe6',
+            'TournamentOfPower'
+        ]
+    };
+
+    // Character class with detailed 3D model creation
+    class Character {
+        constructor(name, hairColor, skinColor, outfitColor) {
+            this.name = name;
+            this.model = this.createCharacterModel(hairColor, skinColor, outfitColor);
+            this.animations = {};
+            this.health = 100;
+            this.ki = 100;
+            this.speed = 10;
+            this.power = 1;
+            this.techniques = [];
+            this.state = 'idle';
+            this.mixer = new THREE.AnimationMixer(this.model);
+            this.actions = {};
+            this.hitbox = new THREE.Box3().setFromObject(this.model);
+        }
+
+        createCharacterModel(hairColor, skinColor, outfitColor) {
+            const character = new THREE.Group();
+
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const headMaterial = new THREE.MeshPhongMaterial({ color: skinColor });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            character.add(head);
+
+            // Hair (Saiyan style)
+            const hairGeometry = new THREE.ConeGeometry(0.5, 1, 32);
+            const hairMaterial = new THREE.MeshPhongMaterial({ color: hairColor });
+            const hair = new THREE.Mesh(hairGeometry, hairMaterial);
+            hair.position.y = 0.5;
+            character.add(hair);
+
+            // Eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+            const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(0.2, 0.1, 0.4);
+            const rightEye = leftEye.clone();
+            rightEye.position.x = -0.2;
+            character.add(leftEye, rightEye);
+
+            // Pupils
+            const pupilGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+            const pupilMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+            const leftPupil = new THREE.Mesh(pupilGeometry, pupilMaterial);
+            leftPupil.position.set(0.2, 0.1, 0.45);
+            const rightPupil = leftPupil.clone();
+            rightPupil.position.x = -0.2;
+            character.add(leftPupil, rightPupil);
+
+            // Mouth
+            const mouthGeometry = new THREE.BoxGeometry(0.2, 0.05, 0.1);
+            const mouthMaterial = new THREE.MeshPhongMaterial({ color: 0xff9999 });
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, -0.2, 0.45);
+            character.add(mouth);
+
+            // Jaw
+            const jawGeometry = new THREE.BoxGeometry(0.5, 0.2, 0.5);
+            const jawMaterial = new THREE.MeshPhongMaterial({ color: skinColor });
+            const jaw = new THREE.Mesh(jawGeometry, jawMaterial);
+            jaw.position.set(0, -0.35, 0);
+            character.add(jaw);
+
+            // Body
+            const bodyGeometry = new THREE.CylinderGeometry(0.3, 0.5, 1, 32);
+            const bodyMaterial = new THREE.MeshPhongMaterial({ color: outfitColor });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = -1;
+            character.add(body);
+
+            // Arms
+            const armGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 32);
+            const armMaterial = new THREE.MeshPhongMaterial({ color: skinColor });
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(0.4, -1, 0);
+            const rightArm = leftArm.clone();
+            rightArm.position.x = -0.4;
+            character.add(leftArm, rightArm);
+
+            // Legs
+            const legGeometry = new THREE.CylinderGeometry(0.15, 0.15, 1, 32);
+            const legMaterial = new THREE.MeshPhongMaterial({ color: outfitColor });
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(0.2, -2, 0);
+            const rightLeg = leftLeg.clone();
+            rightLeg.position.x = -0.2;
+            character.add(leftLeg, rightLeg);
+
+            return character;
+        }
+
+        update(delta) {
+            this.mixer.update(delta);
+            this.hitbox.setFromObject(this.model);
+        }
+
+        takeDamage(amount) {
+            this.health -= amount;
+            if (this.health <= 0) {
+                this.die();
+            }
+        }
+
+        die() {
+            // Death animation and removal logic
+        }
+
+        attack(target) {
+            // Basic attack logic
+        }
+
+        useTechnique(technique, target) {
+            // Special technique logic
+        }
+    }
+
+    // Player class extending Character
+    class Player extends Character {
+        constructor(name, hairColor, skinColor, outfitColor) {
+            super(name, hairColor, skinColor, outfitColor);
+            this.camera = game.camera;
+            this.cameraOffset = new THREE.Vector3(0, 5, 10);
+        }
+
+        update(delta) {
+            super.update(delta);
+            this.updateMovement(delta);
+            this.updateCamera();
+        }
+
+        updateMovement(delta) {
+            const speed = 5 * delta;
+            if (game.input.keys['KeyW']) this.model.position.z -= speed;
+            if (game.input.keys['KeyS']) this.model.position.z += speed;
+            if (game.input.keys['KeyA']) this.model.position.x -= speed;
+            if (game.input.keys['KeyD']) this.model.position.x += speed;
+            if (game.input.keys['Space'] && this.model.position.y === 0) {
+                // Jump
+                this.model.position.y += 2;
+            }
+        }
+
+        updateCamera() {
+            this.camera.position.copy(this.model.position).add(this.cameraOffset);
+            this.camera.lookAt(this.model.position);
+        }
+    }
+
+    // Enemy class extending Character
+    class Enemy extends Character {
+        constructor(name, hairColor, skinColor, outfitColor, ai) {
+            super(name, hairColor, skinColor, outfitColor);
+            this.ai = ai;
+        }
+
+        update(delta) {
+            super.update(delta);
+            this.ai.update(delta);
+        }
+    }
+
+    // AI class for enemies
+    class AI {
+        constructor(character, difficulty) {
+            this.character = character;
+            this.difficulty = difficulty;
+            this.state = 'idle';
+        }
+
+        update(delta) {
+            // Simple AI: move towards player
+            const direction = new THREE.Vector3().subVectors(game.player.model.position, this.character.model.position).normalize();
+            this.character.model.position.add(direction.multiplyScalar(2 * delta));
+
+            // Look at player
+            this.character.model.lookAt(game.player.model.position);
+
+            // Attack if close enough
+            if (this.character.model.position.distanceTo(game.player.model.position) < 2) {
+                this.attack();
+            }
+        }
+
+        attack() {
+            // Simple attack logic
+            if (Math.random() < 0.1) {  // 10% chance to attack per update
+                game.player.takeDamage(10);
+                console.log(`${this.character.name} attacks ${game.player.name}!`);
+            }
+        }
+    }
+
+    // Technique class for special moves
+    class Technique {
+        constructor(name, damage, kiCost, animation) {
+            this.name = name;
+            this.damage = damage;
+            this.kiCost = kiCost;
+            this.animation = animation;
+        }
+
+        execute(user, target) {
+            if (user.ki >= this.kiCost) {
+                user.ki -= this.kiCost;
+                target.takeDamage(this.damage);
+                user.mixer.clipAction(this.animation).play();
+                console.log(`${user.name} uses ${this.name} on ${target.name}!`);
+            } else {
+                console.log(`${user.name} doesn't have enough ki to use ${this.name}!`);
+            }
+        }
+    }
+
+    // Projectile class for energy attacks
+    class Projectile {
+        constructor(position, direction, speed, damage, model) {
+            this.position = position;
+            this.direction = direction;
+            this.speed = speed;
+            this.damage = damage;
+            this.model = model;
+        }
+
+        update(delta) {
+            this.position.add(this.direction.multiplyScalar(this.speed * delta));
+            this.model.position.copy(this.position);
+
+            // Check for collisions
+            game.characters.forEach(character => {
+                if (character.hitbox.containsPoint(this.position)) {
+                    character.takeDamage(this.damage);
+                    game.scene.remove(this.model);
+                    game.projectiles = game.projectiles.filter(p => p !== this);
+                }
+            });
+
+            // Remove if out of bounds
+            if (this.position.length() > 100) {
+                game.scene.remove(this.model);
+                game.projectiles = game.projectiles.filter(p => p !== this);
+            }
+        }
+    }
+
+    // Particle system for special effects
+    class ParticleSystem {
+        constructor(position, texture, count, size, lifetime) {
+            this.particles = new THREE.BufferGeometry();
+            this.material = new THREE.PointsMaterial({
+                size: size,
+                map: texture,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true
+            });
+            this.system = new THREE.Points(this.particles, this.material);
+            this.system.position.copy(position);
+            this.lifetime = lifetime;
+            this.time = 0;
+
+            const positions = new Float32Array(count * 3);
+            const velocities = new Float32Array(count * 3);
+            for (let i = 0; i < count * 3; i += 3) {
+                positions[i] = Math.random() * 2 - 1;
+                positions[i + 1] = Math.random() * 2 - 1;
+                positions[i + 2] = Math.random() * 2 - 1;
+                velocities[i] = Math.random() * 2 - 1;
+                velocities[i + 1] = Math.random() * 2 - 1;
+                velocities[i + 2] = Math.random() * 2 - 1;
+            }
+            this.particles.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            this.particles.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+        }
+
+        update(delta) {
+            this.time += delta;
+            if (this.time >= this.lifetime) {
+                game.scene.remove(this.system);
+                return false;
+            }
+
+            const positions = this.particles.attributes.position.array;
+            const velocities = this.particles.attributes.velocity.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] += velocities[i] * delta;
+                positions[i + 1] += velocities[i + 1] * delta;
+                positions[i + 2] += velocities[i + 2] * delta;
+            }
+            this.particles.attributes.position.needsUpdate = true;
+            return true;
+        }
+    }
+
+    // Level class for environment and enemy management
+    class Level {
+        constructor(name, terrain, skybox, enemies, items) {
+            this.name = name;
+            this.terrain = terrain;
+            this.skybox = skybox;
+            this.enemies = enemies;
+            this.items = items;
+        }
+
+        load() {
+            // Load level assets and set up environment
+            game.scene.background = this.skybox;
+            game.scene.add(this.terrain);
+            this.enemies.forEach(enemy => game.scene.add(enemy.model));
+            this.items.forEach(item => game.scene.add(item));
+        }
+
+        unload() {
+            // Clean up level assets
+            game.scene.background = null;
+            game.scene.remove(this.terrain);
+            this.enemies.forEach(enemy            if (projectile.position.length() > 100) {
+                game.scene.remove(projectile.model);
+                return false;
+            }
+            return true;
+        });
+    }
+
+    // Update particles
+    function updateParticles(delta) {
+        game.particles = game.particles.filter(particle => particle.update(delta));
+    }
+
+    // Check for collisions
+    function checkCollisions() {
+        game.enemies.forEach(enemy => {
+            if (enemy.hitbox.intersectsBox(game.player.hitbox)) {
+                game.player.takeDamage(10);
+                createExplosion(game.player.model.position);
+            }
+        });
+    }
+
+    // Update camera
+    function updateCamera() {
+        const idealOffset = new THREE.Vector3(-5, 5, -5);
+        const idealLookat = new THREE.Vector3(0, 2, 0);
+
+        const playerPosition = game.player.model.position;
+
+        const currentPosition = game.camera.position;
+        const currentLookat = new THREE.Vector3();
+        game.camera.getWorldDirection(currentLookat);
+
+        const newPosition = playerPosition.clone().add(idealOffset);
+        const newLookat = playerPosition.clone().add(idealLookat);
+
+        currentPosition.lerp(newPosition, 0.1);
+        currentLookat.lerp(newLookat, 0.1);
+
+        game.camera.position.copy(currentPosition);
+        game.camera.lookAt(currentLookat);
+    }
+
+    // Render game
+    function renderGame() {
+        game.composer.render();
+        updateHUD();
+    }
+
+    // Create explosion effect
+    function createExplosion(position) {
+        const particleCount = 100;
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(particleCount * 3);
+        const colors = new Float32Array(particleCount * 3);
+
+        for (let i = 0; i < particleCount * 3; i += 3) {
+            positions[i] = position.x + (Math.random() - 0.5) * 2;
+            positions[i + 1] = position.y + (Math.random() - 0.5) * 2;
+            positions[i + 2] = position.z + (Math.random() - 0.5) * 2;
+
+            colors[i] = 1;
+            colors[i + 1] = Math.random() * 0.5 + 0.5;
+            colors[i + 2] = 0;
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const material = new THREE.PointsMaterial({
+            size: 0.1,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            transparent: true
+        });
+
+        const particles = new THREE.Points(geometry, material);
+        game.scene.add(particles);
+
+        game.particles.push({
+            model: particles,
+            life: 1,
+            update: function(delta) {
+                this.life -= delta;
+                if (this.life <= 0) {
+                    game.scene.remove(this.model);
+                    return false;
+                }
+                this.model.material.opacity = this.life;
+                return true;
+            }
+        });
+    }
+
+    // Create energy beam
+    function createEnergyBeam(start, direction) {
+        const geometry = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+        geometry.rotateX(Math.PI / 2);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.7
+        });
+        const beam = new THREE.Mesh(geometry, material);
+        beam.position.copy(start);
+        beam.lookAt(start.clone().add(direction));
+        game.scene.add(beam);
+
+        const speed = 30;
+        const projectile = {
+            model: beam,
+            position: start.clone(),
+            velocity: direction.multiplyScalar(speed),
+            damage: 20,
+            update: function(delta) {
+                this.position.add(this.velocity.clone().multiplyScalar(delta));
+                this.model.position.copy(this.position);
+                return true;
+            }
+        };
+        game.projectiles.push(projectile);
+    }
+
+    // Create Saiyan hair
+    function createSaiyanHair(color) {
+        const hairGroup = new THREE.Group();
+
+        const spikeGeometry = new THREE.ConeGeometry(0.1, 0.5, 8);
+        const hairMaterial = new THREE.MeshPhongMaterial({ color: color });
+
+        const spikePositions = [
+            { pos: new THREE.Vector3(0, 0.2, 0), rot: new THREE.Euler(0, 0, 0) },
+            { pos: new THREE.Vector3(0.15, 0.1, 0), rot: new THREE.Euler(0, 0, Math.PI / 6) },
+            { pos: new THREE.Vector3(-0.15, 0.1, 0), rot: new THREE.Euler(0, 0, -Math.PI / 6) },
+            { pos: new THREE.Vector3(0, 0.1, 0.15), rot: new THREE.Euler(Math.PI / 6, 0, 0) },
+            { pos: new THREE.Vector3(0, 0.1, -0.15), rot: new THREE.Euler(-Math.PI / 6, 0, 0) }
+        ];
+
+        spikePositions.forEach(spike => {
+            const spikeMesh = new THREE.Mesh(spikeGeometry, hairMaterial);
+            spikeMesh.position.copy(spike.pos);
+            spikeMesh.setRotationFromEuler(spike.rot);
+            hairGroup.add(spikeMesh);
+        });
+
+        return hairGroup;
+    }
+
+    // Create Saiyan tail
+    function createSaiyanTail(color) {
+        const tailGroup = new THREE.Group();
+
+        const tailGeometry = new THREE.CylinderGeometry(0.05, 0.02, 1, 8);
+        const tailMaterial = new THREE.MeshPhongMaterial({ color: color });
+
+        const tailSegments = 5;
+        for (let i = 0; i < tailSegments; i++) {
+            const segment = new THREE.Mesh(tailGeometry, tailMaterial);
+            segment.position.y = -i * 0.2;
+            segment.rotation.x = Math.PI / 2;
+            tailGroup.add(segment);
+        }
+
+        return tailGroup;
+    }
+
+    // Create aura effect
+    function createAura(color) {
+        const auraGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const auraMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: new THREE.Color(color) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                varying vec2 vUv;
+                void main() {
+                    float intensity = 0.5 + 0.5 * sin(time * 5.0 + vUv.y * 10.0);
+                    gl_FragColor = vec4(color * intensity, 0.5);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const aura = new THREE.Mesh(auraGeometry, auraMaterial);
+        return aura;
+    }
+
+    // Transform character to Super Saiyan
+    function transformToSuperSaiyan(character) {
+        character.model.remove(character.hair);
+        character.hair = createSaiyanHair(0xffff00);
+        character.model.add(character.hair);
+
+        character.aura = createAura(0xffff00);
+        character.model.add(character.aura);
+
+        character.power *= 50;
+        character.speed *= 2;
+
+        game.audio.effects.powerUp.play();
+    }
+
+    // Create ki blast
+    function createKiBlast(start, direction) {
+        const geometry = new THREE.SphereGeometry(0.2, 16, 16);
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 0.7
+        });
+        const blast = new THREE.Mesh(geometry, material);
+        blast.position.copy(start);
+        game.scene.add(blast);
+
+        const speed = 20;
+        const projectile = {
+            model: blast,
+            position: start.clone(),
+            velocity: direction.multiplyScalar(speed),
+            damage: 10,
+            update: function(delta) {
+                this.position.add(this.velocity.clone().multiplyScalar(delta));
+                this.model.position.copy(this.position);
+                return true;
+            }
+        };
+        game.projectiles.push(projectile);
+    }
+
+    // Create Kamehameha
+    function createKamehameha(start, direction) {
+        const geometry = new THREE.CylinderGeometry(0.5, 0.5, 10, 32);
+        geometry.rotateX(Math.PI / 2);
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: new THREE.Color(0x00ffff) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                varying vec2 vUv;
+                void main() {
+                    float intensity = 0.5 + 0.5 * sin(time * 10.0 + vUv.x * 20.0);
+                    gl_FragColor = vec4(color * intensity, 0.7);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const beam = new THREE.Mesh(geometry, material);
+        beam.position.copy(start);
+        beam.lookAt(start.clone().add(direction));
+        game.scene.add(beam);
+
+        const speed = 40;
+        const projectile = {
+            model: beam,
+            position: start.clone(),
+            velocity: direction.multiplyScalar(speed),
+            damage: 50,
+            update: function(delta) {
+                this.position.add(this.velocity.clone().multiplyScalar(delta));
+                this.model.position.copy(this.position);
+                this.model.material.uniforms.time.value += delta;
+                return true;
+            }
+        };
+        game.projectiles.push(projectile);
+
+        game.audio.effects.kamehameha.play();
+    }
+
+    // Create Spirit Bomb
+    function createSpiritBomb(character) {
+        const geometry = new THREE.SphereGeometry(0.5, 32, 32);
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                size: { value: 0.5 }
+            },
+            vertexShader: `
+                uniform float time;
+                uniform float size;
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    vec3 pos = position;
+                    pos += normal * (sin(time * 5.0 + position.y * 10.0) * 0.1);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos * size, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                varying vec2 vUv;
+                void main() {
+                    vec3 color = vec3(0.5, 0.8, 1.0);
+                    float intensity = 0.5 + 0.5 * sin(time * 5.0 + vUv.y * 10.0);
+                    gl_FragColor = vec4(color * intensity, 0.7);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const spiritBomb = new THREE.Mesh(geometry, material);
+        spiritBomb.position.set(0, 2, 0);
+        character.model.add(spiritBomb);
+
+        let size = 0.5;
+        let charging = true;
+
+        function updateSpiritBomb(delta) {
+            if (charging) {
+                size += delta * 0.5;
+                spiritBomb.material.uniforms.size.value = size;
+                spiritBomb.material.uniforms.time.value += delta;
+
+                if (size >= 5) {
+                    charging = false;
+                    launchSpiritBomb();
+                }
+            }
+        }
+
+        function launchSpiritBomb() {
+            character.model.remove(spiritBomb);
+            const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(character.model.quaternion);
+            const position = character.model.position.clone().add(new THREE.Vector3(0, 2, 0));
+
+            const projectile = {
+                model: spiritBomb,
+                position: position,
+                velocity: direction.multiplyScalar(10),
+                damage: 100,
+                update: function(delta) {
+                    this.position.add(this.velocity.clone().multiplyScalar(delta));
+                    this.model.position.copy(this.position);
+                    this.model.material.uniforms.time.value += delta;
+                    return true;
+                }
+            };
+            game.projectiles.push(projectile);
+            game.scene.add(spiritBomb);
+
+            game.audio.effects.spiritBomb.play();
+        }
+
+        return updateSpiritBomb;
+    }
+
+    // Create Instant Transmission effect
+    function instantTransmission(character, targetPosition) {
+        const startPosition = character.model.position.clone();
+        const distance = startPosition.distanceTo(targetPosition);
+        const duration = 0.5;
+
+        const teleportEffect = new THREE.Mesh(
+            new THREE.SphereGeometry(0.5, 32, 32),
+            new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5
+            })
+        );
+        teleportEffect.position.copy(startPosition);
+        game.scene.add(teleportEffect);
+
+        let time = 0;
+        function updateTeleport(delta) {
+            time += delta;
+            const t= Math.min(time / duration, 1);
             character.model.position.lerpVectors(startPosition, targetPosition, t);
             teleportEffect.position.copy(character.model.position);
             teleportEffect.scale.setScalar(1 - t);
@@ -339,7 +1098,8 @@
                 Math.random() - 0.5
             ).multiplyScalar(5);
 
-            function updateDebris(delta // Apply gravity
+            function updateDebris(delta) {
+                velocity.y -= 9.8 * delta; // Apply gravity
                 debris.position.add(velocity.clone().multiplyScalar(delta));
                 debris.rotation.x += Math.random() * 5 * delta;
                 debris.rotation.y += Math.random() * 5 * delta;
