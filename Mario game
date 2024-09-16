@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Duper Mario Platformer Extravaganza</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB, #E0F6FF);
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 600px;
+        }
+        #gameCanvas {
+            border: 5px solid #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+        #scoreDisplay, #livesDisplay, #levelDisplay {
+            position: absolute;
+            color: white;
+            font-size: 16px;
+            text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+        }
+        #scoreDisplay { top: 10px; left: 10px; }
+        #livesDisplay { top: 10px; right: 10px; }
+        #levelDisplay { bottom: 10px; left: 10px; }
+        #startScreen, #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 24px;
+        }
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #FFD700;
+            border: none;
+            cursor: pointer;
+            font-family: 'Press Start 2P', cursive;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="scoreDisplay">Score: 0</div>
+        <div id="livesDisplay">Lives: 3</div>
+        <div id="levelDisplay">Level: 1</div>
+        <div id="startScreen">
+            <h1>Super Duper Mario Platformer Extravaganza</h1>
+            <button id="startButton">Start Game</button>
+        </div>
+        <div id="gameOverScreen" style="display: none;">
+            <h1>Game Over</h1>
+            <p id="finalScore"></p>
+            <button id="restartButton">Restart Game</button>
+        </div>
+    </div>
+    <script>
+        // Game constants
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 600;
+        const TILE_SIZE = 32;
+        const GRAVITY = 0.5;
+        const JUMP_STRENGTH = -12;
+        const PLAYER_SPEED = 5;
+        const ENEMY_TYPES = ['goomba', 'koopa', 'piranha'];
+        const POWER_UP_TYPES = ['mushroom', 'fireFlower', 'star'];
+        const BACKGROUND_LAYERS = 5;
+
+        // Game variables
+        let keys = {};
+        let player, camera, level, coins, enemies, powerUps, particles;
+        let score = 0;
+        let lives = 3;
+        let currentLevel = 1;
+        let gameState = 'start';
+        let backgroundLayers = [];
+
+        // Unnecessary but fun variables
+        let totalJumps = 0;
+        let totalCoinsCollected = 0;
+        let totalEnemiesDefeated = 0;
+        let playerBlinks = 0;
+        let secretCode = '';
+        let easterEggActivated = false;
+
+        // Game objects
+        class GameObject {
+            constructor(x, y, width, height, color) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+                this.velocityX = 0;
+                this.velocityY = 0;
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x - camera.x, this.y - camera.y, this.width, this.height);
+            }
+
+            update() {
+                this.x += this.velocityX;
+                this.y += this.velocityY;
+            }
+        }
+
+        class Player extends GameObject {
+            constructor(x, y) {
+                super(x, y, TILE_SIZE, TILE_SIZE * 1.5, 'red');
+                this.jumping = false;
+                this.grounded = false;
+                this.powerUp = null;
+                this.invincible = false;
+                this.invincibilityTimer = 0;
+            }
+
+            update() {
+                this.velocityX = (keys['ArrowRight'] ? PLAYER_SPEED : 0) - (keys['ArrowLeft'] ? PLAYER_SPEED : 0);
+                this.velocityY += GRAVITY;
+
+                if (keys['ArrowUp'] && this.grounded) {
+                    this.velocityY = JUMP_STRENGTH;
+                    this.jumping = true;
+                    this.grounded = false;
+                    totalJumps++;
+                    createParticles(this.x, this.y + this.height, 5, '#FFF');
+                }
+
+                super.update();
+                this.checkCollisions();
+
+                if (this.invincible) {
+                    this.invincibilityTimer--;
+                    if (this.invincibilityTimer <= 0) {
+                        this.invincible = false;
+                    }
+                }
+
+                // Unnecessary blinking effect
+                playerBlinks++;
+                if (playerBlinks % 30 === 0) {
+                    this.color = this.color === 'red' ? 'darkred' : 'red';
+                }
+            }
+
+            checkCollisions() {
+                this.grounded = false;
+                for (let row = 0; row < level.length; row++) {
+                    for (let col = 0; col < level[row].length; col++) {
+                        if (level[row][col] !== 0) {
+                            let tileX = col * TILE_SIZE;
+                            let tileY = row * TILE_SIZE;
+                            if (this.x < tileX + TILE_SIZE && this.x + this.width > tileX &&
+                                this.y < tileY + TILE_SIZE && this.y + this.height > tileY) {
+                                if (this.velocityY > 0 && this.y + this.height - this.velocityY <= tileY) {
+                                    this.y = tileY - this.height;
+                                    this.velocityY = 0;
+                                    this.grounded = true;
+                                } else if (this.velocityY < 0 && this.y - this.velocityY >= tileY + TILE_SIZE) {
+                                    this.y = tileY + TILE_SIZE;
+                                    this.velocityY = 0;
+                                } else if (this.velocityX > 0 && this.x + this.width - this.velocityX <= tileX) {
+                                    this.x = tileX - this.width;
+                                } else if (this.velocityX < 0 && this.x - this.velocityX >= tileX + TILE_SIZE) {
+                                    this.x = tileX + TILE_SIZE;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            draw(ctx) {
+                if (this.invincible && Math.floor(Date.now() / 100) % 2 === 0) {
+                    ctx.globalAlpha = 0.5;
+                }
+                super.draw(ctx);
+                ctx.globalAlpha = 1;
+
+                // Draw power-up effect
+                if (this.powerUp) {
+                    ctx.fillStyle = this.powerUp === 'mushroom' ? 'green' : (this.powerUp === 'fireFlower' ? 'orange' : 'yellow');
+                    ctx.fillRect(this.x - camera.x, this.y - camera.y - 5, this.width, 5);
+                }
+            }
+        }
+
+        class Enemy extends GameObject {
+            constructor(x, y, type) {
+                super(x, y, TILE_SIZE, TILE_SIZE, 'green');
+                this.type = type;
+                this.speed = 2;
+                this.direction = 1;
+            }
+
+            update() {
+                this.velocityX = this.speed * this.direction;
+                super.update();
+                if (this.checkCollision()) {
+                    this.direction *= -1;
+                }
+
+                // Special behavior for different enemy types
+                switch (this.type) {
+                    case 'koopa':
+                        this.color = 'yellow';
+                        break;
+                    case 'piranha':
+                        this.velocityY = Math.sin(Date.now() / 500) * 2;
+                        break;
+                }
+            }
+
+            checkCollision() {
+                for (let row = 0; row < level.length; row++) {
+                    for (let col = 0; col < level[row].length; col++) {
+                        if (level[row][col] !== 0) {
+                            let tileX = col * TILE_SIZE;
+                            let tileY = row * TILE_SIZE;
+                            if (this.x < tileX + TILE_SIZE && this.x + this.width > tileX &&
+                                this.y < tileY + TILE_SIZE && this.y + this.height > tileY) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+
+            draw(ctx) {
+                super.draw(ctx);
+                // Draw enemy eyes
+                ctx.fillStyle = 'white';
+                ctx.fillRect(this.x - camera.x + 5, this.y - camera.y + 5, 5, 5);
+                ctx.fillRect(this.x - camera.x + this.width - 10, this.y - camera.y + 5, 5, 5);
+            }
+        }
+
+        class Coin extends GameObject {
+            constructor(x, y) {
+                super(x, y, TILE_SIZE / 2, TILE_SIZE / 2, 'gold');
+                this.collected = false;
+                this.bobOffset = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                // Make coins bob up and down
+                this.y += Math.sin(Date.now() / 200 + this.bobOffset) * 0.5;
+            }
+
+            draw(ctx) {
+                if (!this.collected) {
+                    ctx.beginPath();
+                    ctx.arc(this.x - camera.x + this.width / 2, this.y - camera.y + this.height / 2, this.width / 2, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.fill();
+                    ctx.closePath();
+                }
+            }
+        }
+
+        class PowerUp extends GameObject {
+            constructor(x, y, type) {
+                super(x, y, TILE_SIZE, TILE_SIZE, 'purple');
+                this.type = type;
+                this.collected = false;
+            }
+
+            update() {
+                if (!this.collected) {
+                    this.velocityY += GRAVITY;
+                    super.update();
+                    this.checkCollisions();
+                }
+            }
+
+            checkCollisions() {
+                for (let row = 0; row < level.length; row++) {
+                    for (let col = 0; col < level[row].length; col++) {
+                        if (level[row][col] !== 0) {
+                            let tileX = col * TILE_SIZE;
+                            let tileY = row * TILE_SIZE;
+                            if (this.x < tileX + TILE_SIZE && this.x + this.width > tileX &&
+                                this.y < tileY + TILE_SIZE && this.y + this.height > tileY) {
+                                if (this.velocityY > 0) {
+                                    this.y = tileY - this.height;
+                                    this.velocityY = 0;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            draw(ctx) {
+                if (!this.collected) {
+                    super.draw(ctx);
+                    ctx.fillStyle = 'white';
+                    ctx.font = '20px Arial';
+                    ctx.fillText(this.type[0].toUpperCase(), this.x - camera.x + 5, this.y - camera.y + 20);
+                }
+            }
+        }
+
+        class Particle extends GameObject {
+            constructor(x, y, size, color, velocityX, velocityY) {
+                super(x, y, size, size, color);
+                this.velocityX = velocityX;
+                this.velocityY = velocityY;
+                this.life = 60;
+            }
+
+            update() {
+                super.update();
+                this.life--;
+                this.velocityY += GRAVITY * 0.1;
+            }
+
+            draw(ctx) {
+                ctx.globalAlpha = this.life / 60;
+                super.draw(ctx);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        class Camera {
+            constructor() {
+                this.x = 0;
+                this.y = 0;
+            }
+
+            update() {
+                this.x = player.x - CANVAS_WIDTH / 2 + player.width / 2;
+                this.y = player.y - CANVAS_HEIGHT / 2 + player.height / 2;
+                this.x = Math.max(0, Math.min(this.x, level[0].length * TILE_SIZE - CANVAS_WIDTH));
+                this.y = Math.max(0, Math.min(this.y, level.length * TILE_SIZE - CANVAS_HEIGHT));
+            }
+        }
+
+        // Level design
+        function generateLevel() {
+            let newLevel = [];
+            for (let i = 0; i < 20; i++) {
+                let row = [];
+                for (let j = 0; j < 100; j++) {
+                    if (i === 19) {
+                        row.push(2); // Ground
+                    } else if (i === 18 && Math.random() < 0.3) {
+                        row.push(1); // Platforms
+                    } else if (i > 10 && Math.random() < 0.05) {
+                        row.push(1); // Floating platforms
+                    } else {
+                        row.push(0); // Empty space
+                    }
+                }
+                newLevel.push(row);
+            }
+            return newLevel;
+        }
+
+        // Game initialization
+        function initGame() {
+          level = generateLevel();
+            player = new Player(TILE_SIZE * 2, TILE_SIZE * 14);
+            camera = new Camera();
+            coins = [];
+            enemies = [];
+            powerUps = [];
+            particles = [];
+
+            // Generate coins
+            for (let i = 0; i < 50; i++) {
+                coins.push(new Coin(Math.random() * level[0].length * TILE_SIZE, Math.random() * (level.length - 5) * TILE_SIZE));
+            }
+
+            // Generate enemies
+            for (let i = 0; i < 20; i++) {
+                let enemyType = ENEMY_TYPES[Math.floor(Math.random() * ENEMY_TYPES.length)];
+                enemies.push(new Enemy(Math.random() * level[0].length * TILE_SIZE, TILE_SIZE * 18, enemyType));
+            }
+
+            // Generate power-ups
+            for (let i = 0; i < 5; i++) {
+                let powerUpType = POWER_UP_TYPES[Math.floor(Math.random() * POWER_UP_TYPES.length)];
+                powerUps.push(new PowerUp(Math.random() * level[0].length * TILE_SIZE, TILE_SIZE * 14, powerUpType));
+            }
+
+            // Generate background layers
+            for (let i = 0; i < BACKGROUND_LAYERS; i++) {
+                backgroundLayers.push({
+                    x: 0,
+                    y: 0,
+                    speed: (i + 1) * 0.2,
+                    tiles: Array(20).fill().map(() => ({
+                        x: Math.random() * CANVAS_WIDTH,
+                        y: Math.random() * CANVAS_HEIGHT,
+                        size: Math.random() * 50 + 10
+                    }))
+                });
+            }
+
+            score = 0;
+            lives = 3;
+            currentLevel = 1;
+            updateDisplays();
+        }
+
+        function gameLoop(ctx) {
+            if (gameState === 'playing') {
+                update();
+                draw(ctx);
+            }
+            requestAnimationFrame(() => gameLoop(ctx));
+        }
+
+        function update() {
+            player.update();
+            camera.update();
+            coins.forEach(coin => coin.update());
+            enemies.forEach(enemy => enemy.update());
+            powerUps.forEach(powerUp => powerUp.update());
+            particles = particles.filter(particle => particle.life > 0);
+            particles.forEach(particle => particle.update());
+
+            // Check collisions
+            checkCoinCollisions();
+            checkEnemyCollisions();
+            checkPowerUpCollisions();
+
+            // Update background layers
+            backgroundLayers.forEach(layer => {
+                layer.x -= layer.speed;
+                if (layer.x <= -CANVAS_WIDTH) {
+                    layer.x = 0;
+                }
+            });
+
+            // Check if player fell off the screen
+            if (player.y > level.length * TILE_SIZE) {
+                playerDie();
+            }
+
+            // Unnecessary but fun: increment secret code on every 100th frame
+            if (frameCount % 100 === 0) {
+                secretCode += String.fromCharCode(65 + Math.floor(Math.random() * 26));
+                if (secretCode.length > 10) secretCode = secretCode.slice(1);
+            }
+        }
+
+        function draw(ctx) {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // Draw background
+            drawBackground(ctx);
+
+            // Draw level
+            for (let row = 0; row < level.length; row++) {
+                for (let col = 0; col < level[row].length; col++) {
+                    if (level[row][col] !== 0) {
+                        ctx.fillStyle = level[row][col] === 1 ? 'black' : '#8B4513';
+                        ctx.fillRect(col * TILE_SIZE - camera.x, row * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+
+            coins.forEach(coin => coin.draw(ctx));
+            powerUps.forEach(powerUp => powerUp.draw(ctx));
+            enemies.forEach(enemy => enemy.draw(ctx));
+            particles.forEach(particle => particle.draw(ctx));
+            player.draw(ctx);
+
+            // Draw HUD
+            drawHUD(ctx);
+        }
+
+        function drawBackground(ctx) {
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            backgroundLayers.forEach((layer, index) => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.1 * (index + 1)})`;
+                layer.tiles.forEach(tile => {
+                    ctx.fillRect(tile.x - layer.x, tile.y, tile.size, tile.size);
+                    ctx.fillRect(tile.x - layer.x + CANVAS_WIDTH, tile.y, tile.size, tile.size);
+                });
+            });
+        }
+
+        function drawHUD(ctx) {
+            ctx.fillStyle = 'white';
+            ctx.font = '20px "Press Start 2P"';
+            ctx.fillText(`Score: ${score}`, 10, 30);
+            ctx.fillText(`Lives: ${lives}`, CANVAS_WIDTH - 150, 30);
+            ctx.fillText(`Level: ${currentLevel}`, 10, CANVAS_HEIGHT - 20);
+
+            // Draw unnecessary secret code
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+            ctx.font = '10px Arial';
+            ctx.fillText(`Secret Code: ${secretCode}`, CANVAS_WIDTH - 150, CANVAS_HEIGHT - 10);
+        }
+
+        function checkCoinCollisions() {
+            coins.forEach(coin => {
+                if (!coin.collected && player.x < coin.x + coin.width &&
+                    player.x + player.width > coin.x &&
+                    player.y < coin.y + coin.height &&
+                    player.y + player.height > coin.y) {
+                    coin.collected = true;
+                    score += 10;
+                    totalCoinsCollected++;
+                    createParticles(coin.x, coin.y, 10, 'gold');
+                    updateDisplays();
+                }
+            });
+        }
+
+        function checkEnemyCollisions() {
+            enemies.forEach(enemy => {
+                if (player.x < enemy.x + enemy.width &&
+                    player.x + player.width > enemy.x &&
+                    player.y < enemy.y + enemy.height &&
+                    player.y + player.height > enemy.y) {
+                    if (player.velocityY > 0 && player.y + player.height < enemy.y + enemy.height / 2) {
+                        // Player jumped on the enemy
+                        enemy.color = 'red';
+                        enemy.velocityY = -5;
+                        player.velocityY = JUMP_STRENGTH / 2;
+                        score += 100;
+                        totalEnemiesDefeated++;
+                        createParticles(enemy.x, enemy.y, 20, 'red');
+                        setTimeout(() => {
+                            enemies = enemies.filter(e => e !== enemy);
+                        }, 500);
+                    } else if (!player.invincible) {
+                        playerDie();
+                    }
+                }
+            });
+        }
+
+        function checkPowerUpCollisions() {
+            powerUps.forEach(powerUp => {
+                if (!powerUp.collected && player.x < powerUp.x + powerUp.width &&
+                    player.x + player.width > powerUp.x &&
+                    player.y < powerUp.y + powerUp.height &&
+                    player.y + player.height > powerUp.y) {
+                    powerUp.collected = true;
+                    player.powerUp = powerUp.type;
+                    createParticles(powerUp.x, powerUp.y, 20, 'purple');
+                    if (powerUp.type === 'star') {
+                        player.invincible = true;
+                        player.invincibilityTimer = 600; // 10 seconds
+                    }
+                }
+            });
+        }
+
+        function playerDie() {
+            lives--;
+            updateDisplays();
+            if (lives <= 0) {
+                gameOver();
+            } else {
+                player.x = TILE_SIZE * 2;
+                player.y = TILE_SIZE * 14;
+                player.velocityY = 0;
+                player.invincible = true;
+                player.invincibilityTimer = 180; // 3 seconds
+            }
+        }
+
+        function gameOver() {
+            gameState = 'gameOver';
+            document.getElementById('gameOverScreen').style.display = 'flex';
+            document.getElementById('finalScore').textContent = `Final Score: ${score}`;
+        }
+
+        function createParticles(x, y, amount, color) {
+            for (let i = 0; i < amount; i++) {
+                particles.push(new Particle(
+                    x, y, 
+                    Math.random() * 5 + 2,
+                    color,
+                    Math.random() * 6 - 3,
+                    Math.random() * 6 - 3
+                ));
+            }
+        }
+
+        function updateDisplays() {
+            document.getElementById('scoreDisplay').textContent = `Score: ${score}`;
+            document.getElementById('livesDisplay').textContent = `Lives: ${lives}`;
+            document.getElementById('levelDisplay').textContent = `Level: ${currentLevel}`;
+        }
+
+        // Event listeners
+        window.addEventListener('keydown', function(e) {
+            keys[e.code] = true;
+        });
+
+        window.addEventListener('keyup', function(e) {
+            keys[e.code] = false;
+        });
+
+        document.getElementById('startButton').addEventListener('click', function() {
+            gameState = 'playing';
+            document.getElementById('startScreen').style.display = 'none';
+            initGame();
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = CANVAS_WIDTH;
+            canvas.height = CANVAS_HEIGHT;
+            gameLoop(ctx);
+        });
+
+        document.getElementById('restartButton').addEventListener('click', function() {
+            gameState = 'playing';
+            document.getElementById('gameOverScreen').style.display = 'none';
+            initGame();
+        });
+
+        // Unnecessary but fun: konami code easter egg
+        let konamiCode = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'KeyB', 'KeyA'];
+        let konamiIndex = 0;
+        window.addEventListener('keydown', function(e) {
+            if (e.code === konamiCode[konamiIndex]) {
+                konamiIndex++;
+                if (konamiIndex === konamiCode.length) {
+                    easterEggActivated = true;
+                    alert('Easter Egg Activated! You now have super powers!');
+                    player.color = 'rainbow';
+                    konamiIndex = 0;
+                }
+            } else {
+                konamiIndex = 0;
+            }
+        });
+
+        // Start with the game in 'start' state
+        gameState = 'start';
+    </script>
+</body>
+</html>
