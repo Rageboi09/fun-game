@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Survival Challenge: Pixel Art Extravaganza</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background-color: #111; color: #0f0; margin: 0; padding: 20px; }
+        #game-container { display: flex; justify-content: space-between; }
+        #game-board { width: 600px; height: 400px; border: 2px solid #0f0; position: relative; overflow: hidden; image-rendering: pixelated; }
+        #controls { width: 300px; padding: 10px; border: 2px solid #0f0; }
+        #stats { margin-top: 20px; }
+        .pixel { position: absolute; width: 10px; height: 10px; }
+        .ai { background-color: #00f; z-index: 10; }
+        .wood { background-color: #840; z-index: 5; }
+        .water { background-color: #06f; z-index: 5; }
+        .animal { background-color: #0f0; z-index: 5; }
+        .zombie { background-color: #f00; z-index: 5; }
+        .ai-number { position: absolute; font-size: 8px; color: white; z-index: 11; }
+        button { background-color: #0f0; color: #000; border: none; padding: 10px; margin: 5px; cursor: pointer; }
+        #leaderboard { margin-top: 20px; }
+        #weather { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="game-board"></div>
+        <div id="controls">
+            <button id="start-btn">Start Simulation</button>
+            <button id="stop-btn">Stop Simulation</button>
+            <div id="stats">
+                <div id="day">Day: 1</div>
+                <div id="time">Time: Day</div>
+                <div id="generation">Generation: 1</div>
+                <div id="food">Food: 100%</div>
+                <div id="water">Water: 100%</div>
+                <div id="health">Health: 100%</div>
+            </div>
+            <div id="weather">Current Weather: <span id="current-weather"></span></div>
+            <div id="leaderboard"></div>
+        </div>
+    </div>
+    <script>
+        class WeatherEvent {
+            constructor() {
+                this.type = this.randomWeather();
+                this.severity = Math.floor(Math.random() * 10) + 1;
+            }
+
+            randomWeather() {
+                const weatherTypes = ['Sunny', 'Rain', 'Storm', 'Wind', 'Fog'];
+                return weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+            }
+
+            impactOnSurvival() {
+                if (this.type === 'Storm') {
+                    return -15 * this.severity;
+                } else if (this.type === 'Rain') {
+                    return -5 * this.severity;
+                }
+                return 0;
+            }
+        }
+
+        class PixelArtBackground {
+            constructor(width, height) {
+                this.width = width;
+                this.height = height;
+                this.pixels = this.generateBackground();
+            }
+
+            generateBackground() {
+                const pixels = [];
+                
+                for (let y = 0; y < this.height - 40; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        pixels.push({x, y, color: '#87CEEB'});
+                    }
+                }
+
+                for (let y = this.height - 40; y < this.height; y++) {
+                    for (let x = 0; x < this.width; x++) {
+                        pixels.push({x, y, color: '#228B22'});
+                    }
+                }
+
+                const flowerColors = ['#FF0000', '#FFFF00', '#FF69B4'];
+                for (let i = 0; i < 20; i++) {
+                    const x = Math.floor(Math.random() * this.width);
+                    const y = Math.floor(Math.random() * 30) + (this.height - 40);
+                    const color = flowerColors[Math.floor(Math.random() * flowerColors.length)];
+                    pixels.push({x, y, color});
+                }
+
+                return pixels;
+            }
+        }
+
+        class Entity {
+            constructor(type, x, y) {
+                this.type = type;
+                this.x = x;
+                this.y = y;
+            }
+        }
+
+        class AI extends Entity {
+            constructor(name, lastName, x, y, illnessChance, number) {
+                super('ai', x, y);
+                this.name = name;
+                this.lastName = lastName;
+                this.food = 100;
+                this.water = 100;
+                this.health = 100;
+                this.wood = 0;
+                this.base = null;
+                this.illnessChance = illnessChance;
+                this.number = number;
+                this.survivalTime = 0;
+            }
+
+            act(game) {
+                this.food -= 0.5;
+                this.water -= 1;
+
+                if (Math.random() < 0.2) {
+                    this.randomAction(game);
+                } else if (this.water < 50) {
+                    this.findWater(game);
+                } else if (this.food < 50) {
+                    this.findFood(game);
+                } else if (!this.base && this.wood >= 10) {
+                    this.buildBase();
+                } else {
+                    this.explore(game);
+                }
+
+                if (this.food <= 0 || this.water <= 0 || this.health <= 0) {
+                    this.die(game);
+                }
+            }
+
+            randomAction(game) {
+                const actions = [
+                    () => this.findWater(game),
+                    () => this.findFood(game),
+                    () => this.explore(game),
+                    () => this.move(Math.floor(Math.random() * 4))
+                ];
+                actions[Math.floor(Math.random() * actions.length)]();
+            }
+
+            findWater(game) {
+                let water = game.findNearest(this, 'water');
+                if (water) {
+                    this.moveTowards(water);
+                    if (this.x === water.x && this.y === water.y) {
+                        this.water = Math.min(100, this.water + 50);
+                        if (Math.random() < this.illnessChance / 100) {
+                            this.health -= 10;
+                        }
+                    }
+                }
+            }
+
+            findFood(game) {
+                let animal = game.findNearest(this, 'animal');
+                if (animal) {
+                    this.moveTowards(animal);
+                    if (this.x === animal.x && this.y === animal.y) {
+                        this.food = Math.min(100, this.food + 30);
+                        game.removeEntity(animal);
+                    }
+                }
+            }
+
+            buildBase() {
+                this.base = { x: this.x, y: this.y };
+                this.wood -= 10;
+            }
+
+            explore(game) {
+                let wood = game.findNearest(this, 'wood');
+                if (wood) {
+                    this.moveTowards(wood);
+                    if (this.x === wood.x && this.y === wood.y) {
+                        this.wood++;
+                        game.removeEntity(wood);
+                    }
+                } else {
+                    this.move(Math.floor(Math.random() * 4));
+                }
+            }
+
+            moveTowards(entity) {
+                if (entity.x < this.x) this.move(0);
+                else if (entity.x > this.x) this.move(1);
+                else if (entity.y < this.y) this.move(2);
+                else if (entity.y > this.y) this.move(3);
+            }
+
+            move(direction) {
+                switch(direction) {
+                    case 0: this.x = Math.max(0, this.x - 1); break;
+                    case 1: this.x = Math.min(59, this.x + 1); break;
+                    case 2: this.y = Math.max(0, this.y - 1); break;
+                    case 3: this.y = Math.min(39, this.y + 1); break;
+                }
+            }
+
+            die(game) {
+                game.removeAI(this);
+            }
+
+            updateSurvivalTime() {
+                this.survivalTime++;
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.entities = [];
+                this.ais = [];
+                this.generation = 1;
+                this.day = 1;
+                this.time = 0;
+                this.leaderboard = [];
+                this.running = false;
+                this.camera = new Camera(600, 400, 600, 400);
+                this.families = ['Smith', 'Johnson', 'Williams', 'Brown'];
+                this.weather = new WeatherEvent();
+                this.weatherUpdateCounter = 0;
+                this.background = new PixelArtBackground(60, 40);
+            }
+
+            generateName() {
+                const firstName = Math.random() < 0.1 ? 'Jacob' : ['Za', 'Bu', 'Mi', 'No', 'Ki', 'Ai', 'Po', 'Lu', 'Je', 'Ry'][Math.floor(Math.random() * 10)];
+                return firstName;
+            }
+
+            initialize() {
+                this.ais = this.families.map((lastName, index) => 
+                    new AI(this.generateName(), lastName, Math.floor(Math.random() * 60), Math.floor(Math.random() * 40), 10, index + 1)
+                );
+                this.spawnEntities();
+            }
+
+            spawnEntities() {
+                for (let y = 0; y < 40; y++) {
+                    this.entities.push(new Entity('water', 30, y));
+                }
+
+                for (let i = 0; i < 50; i++) {
+                    this.entities.push(new Entity('wood', Math.floor(Math.random() * 60), Math.floor(Math.random() * 40)));
+                    if (Math.random() < 0.5) {
+                        this.entities.push(new Entity('animal', Math.floor(Math.random() * 60), Math.floor(Math.random() * 40)));
+                    }
+                }
+            }
+
+            start() {
+                this.running = true;
+                this.run();
+            }
+
+            stop() {
+                this.running = false;
+            }
+
+            run() {
+                if (!this.running) return;
+                this.update();
+                this.render();
+                setTimeout(() => this.run(), 100);
+            }
+
+            update() {
+                this.time += 1;
+                if (this.time >= 3000) {
+                    this.time = 0;
+                    this.day += 1;
+                }
+
+                if (this.time % 1500 === 0) {
+                    if (this.isNight()) {
+                        this.spawnZombies();
+                    } else {
+                        this.despawnZombies();
+                        this.spawnAnimals();
+                    }
+                }
+
+                this.ais.forEach(ai => {
+                    ai.act(this);
+                    ai.updateSurvivalTime();
+                    ai.health += this.weather.impactOnSurvival() / 100;
+                });
+
+                this.weatherUpdateCounter++;
+                if (this.weatherUpdateCounter >= 300) {
+                    this.weather = new WeatherEvent();
+                    this.weatherUpdateCounter = 0;
+                }
+
+                if (this.ais.length === 0 || this.day > 7) {
+                    this.endGeneration();
+                }
+            }
+
+            isNight() {
+                return this.time >= 1500;
+            }
+
+            spawnZombies() {
+                for (let i = 0; i < 10; i++) {
+                    this.entities.push(new Entity('zombie', Math.floor(Math.random() * 60), Math.floor(Math.random() * 40)));
+                }
+            }
+
+            despawnZombies() {
+                this.entities = this.entities.filter(e => e.type !== 'zombie');
+            }
+
+            spawnAnimals() {
+                for (let i = 0; i < 5; i++) {
+                    this.entities.push(new Entity('animal', Math.floor(Math.random() * 60), Math.floor(Math.random() * 40)));
+                }
+            }
+
+            findNearest(ai, type) {
+                return this.entities.filter(e => e.type === type)
+                    .reduce((nearest, current) => {
+                        let nearestDist = Math.abs(nearest.x - ai.x) + Math.abs(nearest.y - ai.y);
+                        let currentDist = Math.abs(current.x - ai.x) + Math.abs(current.y - ai.y);
+                        return currentDist < nearestDist ? current : nearest;
+                    });
+            }
+
+            removeEntity(entity) {
+                this.entities = this.entities.filter(e => e !== entity);
+            }
+
+            removeAI(ai) {
+                this.ais = this.ais.filter(a => a !== ai);
+            }
+
+            endGeneration() {
+                this.updateLeaderboard();
+                this.generation++;
+                this.day = 1;
+                this.time = 0;
+                this.evolveAIs();
+                this.initialize();
+            }
+
+            evolveAIs() {
+                const inheritanceRate = document.getElementById('inheritance').value / 100;
+                const mutationRate = document.getElementById('mutation').value / 100;
+
+                this.ais = this.ais.map(ai => {
+                    const newIllnessChance = Math.max(0, Math.min(100, 
+                        ai.illnessChance * inheritanceRate + 
+                        (Math.random() * 4 - 2) * mutationRate
+                    ));
+                    return new AI(this.generateName(), ai.lastName, Math.floor(Math.random() * 60), Math.floor(Math.random() * 40), newIllnessChance, ai.number);
+                });
+            }
+
+            formatSurvivalTime(totalSeconds) {
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                return `${hours}h ${minutes}m ${seconds}s`;
+            }
+
+            updateLeaderboard() {
+                this.ais.forEach(ai => {
+                    const formattedTime = this.formatSurvivalTime(ai.survivalTime);
+                    this.leaderboard.push({name: `${ai.name} ${ai.lastName}`, time: formattedTime, rawTime: ai.survivalTime});
+                });
+                                this.leaderboard.sort((a, b) => b.rawTime - a.rawTime);
+                this.leaderboard = this.leaderboard.slice(0, 5);
+            }
+
+            render() {
+                const board = document.getElementById('game-board');
+                board.innerHTML = '';
+
+                // Render background
+                this.background.pixels.forEach(pixel => {
+                    const pixelElement = document.createElement('div');
+                    pixelElement.className = 'pixel';
+                    pixelElement.style.left = `${pixel.x * 10}px`;
+                    pixelElement.style.top = `${pixel.y * 10}px`;
+                    pixelElement.style.backgroundColor = pixel.color;
+                    board.appendChild(pixelElement);
+                });
+
+                // Follow the first AI with the camera
+                if (this.ais.length > 0) {
+                    this.camera.follow(this.ais[0]);
+                }
+
+                const visibleEntities = this.entities.concat(this.ais).filter(e => 
+                    e.x >= this.camera.x && e.x < this.camera.x + this.camera.width &&
+                    e.y >= this.camera.y && e.y < this.camera.y + this.camera.height
+                );
+
+                visibleEntities.forEach(entity => {
+                    const pixel = document.createElement('div');
+                    pixel.className = `pixel ${entity.type}`;
+                    pixel.style.left = `${(entity.x - this.camera.x) * 10}px`;
+                    pixel.style.top = `${(entity.y - this.camera.y) * 10}px`;
+                    board.appendChild(pixel);
+
+                    if (entity.type === 'ai') {
+                        const numberElement = document.createElement('div');
+                        numberElement.className = 'ai-number';
+                        numberElement.textContent = entity.number;
+                        numberElement.style.left = `${(entity.x - this.camera.x) * 10}px`;
+                        numberElement.style.top = `${(entity.y - this.camera.y) * 10 - 10}px`;
+                        board.appendChild(numberElement);
+                    }
+                });
+
+                document.getElementById('day').textContent = `Day: ${this.day}`;
+                document.getElementById('time').textContent = `Time: ${this.isNight() ? 'Night' : 'Day'}`;
+                document.getElementById('generation').textContent = `Generation: ${this.generation}`;
+                if (this.ais[0]) {
+                    document.getElementById('food').textContent = `Food: ${Math.round(this.ais[0].food)}%`;
+                    document.getElementById('water').textContent = `Water: ${Math.round(this.ais[0].water)}%`;
+                    document.getElementById('health').textContent = `Health: ${Math.round(this.ais[0].health)}%`;
+                }
+
+                const leaderboardEl = document.getElementById('leaderboard');
+                leaderboardEl.innerHTML = '<h3>Leaderboard</h3>' + 
+                    this.leaderboard.map(ai => `<div>${ai.name}: ${ai.time}</div>`).join('');
+
+                document.getElementById('current-weather').textContent = `${this.weather.type} (Severity: ${this.weather.severity})`;
+            }
+        }
+
+        const game = new Game();
+        game.initialize();
+
+        document.getElementById('start-btn').addEventListener('click', () => game.start());
+        document.getElementById('stop-btn').addEventListener('click', () => game.stop());
+    </script>
+</body>
+</html>
