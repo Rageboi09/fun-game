@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmic Defender: Cursor Evolution Ultimate</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Orbitron', sans-serif;
+            background-color: #000;
+            color: #0ff;
+            overflow: hidden;
+        }
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            font-size: 18px;
+        }
+        #upgradeMenu {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 80vh;
+            overflow-y: auto;
+            display: none;
+            z-index: 100;
+        }
+        .upgradeBtn {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 5px 10px;
+            margin: 5px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            text-align: left;
+        }
+        .upgradeBtn:hover {
+            background: #ff0;
+        }
+        #openUpgradeMenu {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 11;
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        #powerMeter {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 20px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #0ff;
+        }
+        #powerFill {
+            width: 0%;
+            height: 100%;
+            background: #0ff;
+            transition: width 0.3s;
+        }
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        #restartBtn {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            margin-top: 20px;
+            cursor: pointer;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">
+        <div>Level: <span id="levelDisplay">1</span></div>
+        <div>Points: <span id="pointsDisplay">0</span></div>
+        <div>DPS: <span id="dpsDisplay">0</span></div>
+    </div>
+    <button id="openUpgradeMenu">Upgrades</button>
+    <div id="upgradeMenu"></div>
+    <div id="powerMeter"><div id="powerFill"></div></div>
+    <div id="gameOver">
+        <h2>Game Over</h2>
+        <p>Your Score: <span id="finalScore"></span></p>
+        <button id="restartBtn">Restart</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const upgradeMenu = document.getElementById('upgradeMenu');
+        const openUpgradeMenuBtn = document.getElementById('openUpgradeMenu');
+        const powerFill = document.getElementById('powerFill');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartBtn = document.getElementById('restartBtn');
+
+        let width, height, centerX, centerY;
+        let particles = [];
+        let enemies = [];
+        let projectiles = [];
+        let upgrades = {};
+        let level = 1;
+        let points = 0;
+        let dps = 0;
+        let powerMeter = 0;
+        let isGameOver = false;
+        let lastShotTime = 0;
+
+        const UPGRADE_TYPES = {
+            DAMAGE: 'damage',
+            FIRE_RATE: 'fireRate',
+            PROJECTILE_SPEED: 'projectileSpeed',
+            MULTI_SHOT: 'multiShot',
+            HOMING: 'homing',
+            PIERCING: 'piercing',
+            EXPLOSION: 'explosion',
+            CHAIN_LIGHTNING: 'chainLightning',
+            TIME_SLOW: 'timeSlow',
+            SHIELD: 'shield',
+        };
+
+        const upgradeDefinitions = [
+            { type: UPGRADE_TYPES.DAMAGE, name: 'Increase Damage', baseCost: 10, scaling: 1.5 },
+            { type: UPGRADE_TYPES.FIRE_RATE, name: 'Increase Fire Rate', baseCost: 15, scaling: 1.6 },
+            { type: UPGRADE_TYPES.PROJECTILE_SPEED, name: 'Increase Projectile Speed', baseCost: 20, scaling: 1.4 },
+            { type: UPGRADE_TYPES.MULTI_SHOT, name: 'Add Multi-Shot', baseCost: 50, scaling: 2 },
+            { type: UPGRADE_TYPES.HOMING, name: 'Homing Projectiles', baseCost: 100, scaling: 2.5 },
+            { type: UPGRADE_TYPES.PIERCING, name: 'Piercing Projectiles', baseCost: 75, scaling: 2.2 },
+            { type: UPGRADE_TYPES.EXPLOSION, name: 'Explosive Projectiles', baseCost: 150, scaling: 2.8 },
+            { type: UPGRADE_TYPES.CHAIN_LIGHTNING, name: 'Chain Lightning', baseCost: 200, scaling: 3 },
+            { type: UPGRADE_TYPES.TIME_SLOW, name: 'Time Manipulation', baseCost: 250, scaling: 3.5 },
+            { type: UPGRADE_TYPES.SHIELD, name: 'Energy Shield', baseCost: 300, scaling: 3.2 },
+        ];
+
+        function initializeUpgrades() {
+            upgradeDefinitions.forEach(upgrade => {
+                upgrades[upgrade.type] = { level: 0, cost: upgrade.baseCost };
+            });
+        }
+
+        function resizeCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        function createParticle(x, y, color, size = 2, speed = 3) {
+            return {
+                x, y,
+                radius: Math.random() * size + 1,
+                color,
+                velocity: {
+                    x: (Math.random() - 0.5) * speed,
+                    y: (Math.random() - 0.5) * speed
+                },
+                alpha: 1
+            };
+        }
+
+        function createEnemy() {
+            const radius = Math.random() * 20 + 10;
+            let x, y;
+            if (Math.random() < 0.5) {
+                x = Math.random() < 0.5 ? 0 - radius : width + radius;
+                y = Math.random() * height;
+            } else {
+                x = Math.random() * width;
+                y = Math.random() < 0.5 ? 0 - radius : height + radius;
+            }
+            const angle = Math.atan2(centerY - y, centerX - x);
+            const speed = 1 + Math.random() * 0.5 * Math.log(level);
+            const velocity = {
+                x: Math.cos(angle) * speed,
+                y: Math.sin(angle) * speed
+            };
+            return {
+                x, y, radius, velocity,
+                color: `hsl(${Math.random() * 360}, 50%, 50%)`,
+                health: 10 * level,
+                maxHealth: 10 * level
+            };
+        }
+
+        function createProjectile(x, y, angle) {
+            const speed = 5 * (1 + 0.1 * upgrades[UPGRADE_TYPES.PROJECTILE_SPEED].level);
+            return {
+                x, y, radius: 5,
+                velocity: {
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed
+                },
+                color: '#fff',
+                damage: 10 * (1 + 0.2 * upgrades[UPGRADE_TYPES.DAMAGE].level),
+                pierceCount: upgrades[UPGRADE_TYPES.PIERCING].level + 1
+            };
+        }
+
+        function updateParticles() {
+            particles.forEach((particle, index) => {
+                particle.x += particle.velocity.x;
+                particle.y += particle.velocity.y;
+                particle.alpha -= 0.01;
+                if (particle.alpha <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+        }
+
+        function updateEnemies() {
+            const timeSlowFactor = 1 - (0.1 * upgrades[UPGRADE_TYPES.TIME_SLOW].level);
+            enemies.forEach((enemy, index) => {
+                enemy.x += enemy.velocity.x * timeSlowFactor;
+                enemy.y += enemy.velocity.y * timeSlowFactor;
+
+                if (Math.hypot(centerX - enemy.x, centerY - enemy.y) < enemy.radius + 30) {
+                    if (upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
+                        enemies.splice(index, 1);
+                        for (let i = 0; i < 8; i++) {
+                            particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
+                        }
+                    } else {
+                        gameOver();
+                    }
+                }
+            });
+        }
+
+        function updateProjectiles() {
+            projectiles.forEach((projectile, pIndex) => {
+                projectile.x += projectile.velocity.x;
+                projectile.y += projectile.velocity.y;
+
+                if (projectile.x < 0 || projectile.x > width || projectile.y < 0 || projectile.y > height) {
+                    projectiles.splice(pIndex, 1);
+                    return;
+                }
+
+                if (upgrades[UPGRADE_TYPES.HOMING].level > 0) {
+                    const closestEnemy = enemies.reduce((closest, enemy) => {
+                        const distance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
+                        return distance < closest.distance ? { enemy, distance } : closest;
+                    }, { enemy: null, distance: Infinity }).enemy;
+
+                    if (closestEnemy) {
+                        const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
+                        projectile.velocity.x += Math.cos(angle) * 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        projectile.velocity.y += Math.sin(angle) * 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
+                    }
+                }
+
+                enemies.forEach((enemy, eIndex) => {
+                    const dist = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
+                    if (dist - enemy.radius - projectile.radius < 1) {
+                        enemy.health -= projectile.damage;
+
+                        if (upgrades[UPGRADE_TYPES.EXPLOSION].level > 0) {
+                            const explosionRadius = 50 * upgrades[UPGRADE_TYPES.EXPLOSION].level;
+                            enemies.forEach(otherEnemy => {
+                                const explosionDist = Math.hypot(enemy.x - otherEnemy.x, enemy.y - otherEnemy.y);
+                                if (explosionDist < explosionRadius) {
+                                    otherEnemy.health -= projectile.damage * 0.5;
+                                }
+                            });
+                            for (let i = 0; i < 8; i++) {
+                                particles.push(createParticle(enemy.x, enemy.y, '#f00', 3, 5));
+                            }
+                        }
+
+                        if (upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level > 0) {
+                            let chainCount = upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level;
+                            let lastEnemy = enemy;
+                            while (chainCount > 0) {
+                                const closestEnemy = enemies.find(e => e !== lastEnemy && Math.hypot(e.x - lastEnemy.x, e.y - lastEnemy.y) < 100);
+                                if (closestEnemy) {
+                                    closestEnemy.health -= projectile.damage * 0.3;
+                                    lastEnemy = closestEnemy;
+                                    chainCount--;
+                                    for (let i = 0; i < 4; i++) {
+                                        particles.push(createParticle(closestEnemy.x, closestEnemy.y, '#ff0', 2, 4));
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (enemy.health <= 0) {
+                            enemies.splice(eIndex, 1);
+                            points += 10 * level;
+                            for (let i = 0; i < 8; i++) {
+                                particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
+                            }
+                        }
+
+                        projectile.pierceCount--;
+                        if (projectile.pierceCount <= 0) {
+                            projectiles.splice(pIndex, 1);
+                        }
+                    }
+                });
+            });
+        }
+
+        function shoot(event) {
+            const currentTime = Date.now();
+            const fireRate = 500 / (1 + 0.1 * upgrades[UPGRADE_TYPES.FIRE_RATE].level);
+            if (currentTime - lastShotTime < fireRate) return;
+
+            lastShotTime = currentTime;
+
+            const angle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
+            const multiShot = upgrades[UPGRADE_TYPES.MULTI_SHOT].level;
+            for (let i = 0; i < (multiShot + 1); i++) {
+                const spread = (Math.random() - 0.5) * 0.2 * multiShot;
+                projectiles.push(createProjectile(centerX, centerY, angle + spread));
+            }
+        }
+
+        function activateSpecialAbility() {
+            enemies.forEach(enemy => {
+                enemy.health -= 50 * level;
+                if (enemy.health <= 0) {
+                    enemies = enemies.filter(e => e !== enemy);
+                    points += 20 * level;
+                }
+            });
+            for (let i = 0; i < 100; i++) {
+                particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            particles.forEach(particle => {
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+                ctx.fillStyle = particle.color;
+                ctx.globalAlpha = particle.alpha;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            });
+
+            enemies.forEach(enemy => {
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.fillStyle = enemy.color;
+                ctx.fill();
+
+                // Health bar
+                ctx.fillStyle = 'red';
+                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 5);
+                ctx.fillStyle = 'green';
+                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, (enemy.health / enemy.maxHealth) * enemy.radius * 2, 5);
+            });
+
+            projectiles.forEach(projectile => {
+                ctx.beginPath();
+                ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+                ctx.fillStyle = projectile.color;
+                ctx.fill();
+            });
+
+            // Draw cursor
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 10, 0, Math.PI * 2);
+            ctx.fillStyle = '#0ff';
+            ctx.fill();
+
+            // Draw shield if active
+            if (upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, 30, 0, Math.PI * 2);
+                ctx.strokeStyle = '#0ff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('levelDisplay').textContent = level;
+            document.getElementById('pointsDisplay').textContent = Math.floor(points);
+            document.getElementById('dpsDisplay').textContent = Math.floor(dps);
+            powerFill.style.width = `${powerMeter}%`;
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+
+            updateParticles();
+            updateEnemies();
+            updateProjectiles();
+            draw();
+            updateUI();
+
+            if (Math.random() < 0.02 + level * 0.002) {
+                enemies.push(createEnemy());
+            }
+
+            powerMeter = Math.min(100, powerMeter + 0.1);
+
+            if (powerMeter === 100) {
+                activateSpecialAbility();
+                powerMeter = 0;
+            }
+
+            dps = projectiles.length * 10 * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUpgradeMenu() {
+            upgradeMenu.innerHTML = '';
+            upgradeDefinitions.forEach(upgrade => {
+                const button = document.createElement('button');
+                button.className = 'upgradeBtn';
+                button.textContent = `${upgrade.name} (${upgrades[upgrade.type].cost} points) - Level ${upgrades[upgrade.type].level}`;
+                button.onclick = () => purchaseUpgrade(upgrade.type);
+                upgradeMenu.appendChild(button);
+            });
+        }
+
+        function purchaseUpgrade(type) {
+            const upgrade = upgrades[type];
+            if (points >= upgrade.cost) {
+                points -= upgrade.cost;
+                upgrade.level++;
+                upgrade.cost = Math.floor(upgrade.cost * upgradeDefinitions.find(u => u.type === type).scaling);
+                updateUpgradeMenu();
+            }
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            gameOverScreen.style.display = 'block';
+            finalScoreDisplay.textContent = Math.floor(points);
+        }
+
+        function restartGame() {
+            isGameOver = false;
+            gameOverScreen.style.display = 'none';
+            level = 1;
+            points = 0;
+            powerMeter = 0;
+            enemies = [];
+            projectiles = [];
+            particles = [];
+            initializeUpgrades();
+            updateUpgradeMenu();
+            gameLoop();
+        }
+
+        function startGame() {
+            resizeCanvas();
+            initializeUpgrades();
+            updateUpgradeMenu();
+
+            window.addEventListener('resize', resizeCanvas);
+            canvas.addEventListener('click', shoot);
+            openUpgradeMenuBtn.addEventListener('click', () => {
+                upgradeMenu.style.display = upgradeMenu.style.display === 'none' ? 'block' : 'none';
+            });
+            restartBtn.addEventListener('click', restartGame);
+
+            setInterval(() => {
+                if (!isGameOver) level++;
+            }, 60000);
+
+            gameLoop();
+        }
+
+        startGame();
+    </script>
+</body>
+</html>
