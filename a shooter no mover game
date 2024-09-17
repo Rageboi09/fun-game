@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cosmic Defender: Cursor Evolution Ultimate</title>
+    <title>Cosmic Defender: Sigma Evolution</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -24,44 +24,51 @@
             left: 10px;
             z-index: 10;
             font-size: 18px;
-        }
-        #upgradeMenu {
-            position: absolute;
-            top: 10px;
-            right: 10px;
             background: rgba(0,0,0,0.7);
             padding: 10px;
             border-radius: 5px;
-            max-height: 80vh;
-            overflow-y: auto;
-            display: none;
-            z-index: 100;
         }
-        .upgradeBtn {
-            background: #0ff;
-            color: #000;
-            border: none;
-            padding: 5px 10px;
-            margin: 5px 0;
-            cursor: pointer;
-            transition: all 0.3s;
-            width: 100%;
-            text-align: left;
-        }
-        .upgradeBtn:hover {
-            background: #ff0;
-        }
-        #openUpgradeMenu {
+        .dropdown {
             position: absolute;
             top: 10px;
             right: 10px;
-            z-index: 11;
-            background: #0ff;
+            z-index: 100;
+        }
+        .dropbtn {
+            background-color: #0ff;
             color: #000;
+            padding: 10px;
+            font-size: 16px;
             border: none;
-            padding: 5px 10px;
             cursor: pointer;
         }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: rgba(0,0,0,0.9);
+            min-width: 250px;
+            box-shadow: 0px 8px 16px 0px rgba(0,255,255,0.2);
+            z-index: 1;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .dropdown-content button {
+            color: #0ff;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            background: none;
+            border: none;
+            width: 100%;
+            text-align: left;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .dropdown-content button:hover {
+            background-color: rgba(0,255,255,0.1);
+        }
+        .show {display: block;}
         #powerMeter {
             position: absolute;
             bottom: 10px;
@@ -98,6 +105,21 @@
             cursor: pointer;
             font-size: 18px;
         }
+        #gameLog {
+            position: absolute;
+            bottom: 40px;
+            left: 10px;
+            width: 300px;
+            height: 150px;
+            background: rgba(0,0,0,0.7);
+            border: 1px solid #0ff;
+            overflow-y: auto;
+            padding: 10px;
+            font-size: 14px;
+        }
+        #gameLog p {
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -107,20 +129,21 @@
         <div>Points: <span id="pointsDisplay">0</span></div>
         <div>DPS: <span id="dpsDisplay">0</span></div>
     </div>
-    <button id="openUpgradeMenu">Upgrades</button>
-    <div id="upgradeMenu"></div>
+    <div class="dropdown">
+        <button class="dropbtn">Upgrades</button>
+        <div id="upgradeMenu" class="dropdown-content"></div>
+    </div>
     <div id="powerMeter"><div id="powerFill"></div></div>
     <div id="gameOver">
         <h2>Game Over</h2>
         <p>Your Score: <span id="finalScore"></span></p>
         <button id="restartBtn">Restart</button>
     </div>
+    <div id="gameLog"></div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const upgradeMenu = document.getElementById('upgradeMenu');
-        const openUpgradeMenuBtn = document.getElementById('openUpgradeMenu');
         const powerFill = document.getElementById('powerFill');
         const gameOverScreen = document.getElementById('gameOver');
         const finalScoreDisplay = document.getElementById('finalScore');
@@ -130,6 +153,7 @@
         let particles = [];
         let enemies = [];
         let projectiles = [];
+        let meteors = [];
         let upgrades = {};
         let level = 1;
         let points = 0;
@@ -149,6 +173,10 @@
             CHAIN_LIGHTNING: 'chainLightning',
             TIME_SLOW: 'timeSlow',
             SHIELD: 'shield',
+            BLACK_HOLE: 'blackHole',
+            LASER_BEAM: 'laserBeam',
+            QUANTUM_LEAP: 'quantumLeap',
+            METEOR_SHOWER: 'meteorShower'
         };
 
         const upgradeDefinitions = [
@@ -162,6 +190,10 @@
             { type: UPGRADE_TYPES.CHAIN_LIGHTNING, name: 'Chain Lightning', baseCost: 200, scaling: 3 },
             { type: UPGRADE_TYPES.TIME_SLOW, name: 'Time Manipulation', baseCost: 250, scaling: 3.5 },
             { type: UPGRADE_TYPES.SHIELD, name: 'Energy Shield', baseCost: 300, scaling: 3.2 },
+            { type: UPGRADE_TYPES.BLACK_HOLE, name: 'Black Hole Generator', baseCost: 500, scaling: 4 },
+            { type: UPGRADE_TYPES.LASER_BEAM, name: 'Omega Laser Beam', baseCost: 750, scaling: 4.5 },
+            { type: UPGRADE_TYPES.QUANTUM_LEAP, name: 'Quantum Leap Drive', baseCost: 1000, scaling: 5 },
+            { type: UPGRADE_TYPES.METEOR_SHOWER, name: 'Meteor Shower', baseCost: 1200, scaling: 5.5 }
         ];
 
         function initializeUpgrades() {
@@ -227,6 +259,19 @@
                 color: '#fff',
                 damage: 10 * (1 + 0.2 * upgrades[UPGRADE_TYPES.DAMAGE].level),
                 pierceCount: upgrades[UPGRADE_TYPES.PIERCING].level + 1
+            };
+        }
+
+        function createMeteor() {
+            const radius = Math.random() * 30 + 20;
+            const x = Math.random() * width;
+            const y = -radius;
+            const speed = 2 + Math.random() * 2;
+            return {
+                x, y, radius,
+                velocity: { x: 0, y: speed },
+                color: '#FFA500',
+                damage: 50 * upgrades[UPGRADE_TYPES.METEOR_SHOWER].level
             };
         }
 
@@ -336,6 +381,31 @@
             });
         }
 
+        function updateMeteors() {
+            meteors.forEach((meteor, index) => {
+                meteor.y += meteor.velocity.y;
+
+                if (meteor.y > height + meteor.radius) {
+                    meteors.splice(index, 1);
+                    return;
+                }
+
+                enemies.forEach((enemy, eIndex) => {
+                    const dist = Math.hypot(meteor.x - enemy.x, meteor.y - enemy.y);
+                    if (dist < meteor.radius + enemy.radius) {
+                        enemy.health -= meteor.damage;
+                        if (enemy.health <= 0) {
+                            enemies.splice(eIndex, 1);
+                            points += 10 * level;
+                            for (let i = 0; i < 8; i++) {
+                                particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
         function shoot(event) {
             const currentTime = Date.now();
             const fireRate = 500 / (1 + 0.1 * upgrades[UPGRADE_TYPES.FIRE_RATE].level);
@@ -351,16 +421,88 @@
             }
         }
 
-        function activateSpecialAbility() {
+        function activateBlackHole() {
+            const blackHoleRadius = 100 * upgrades[UPGRADE_TYPES.BLACK_HOLE].level;
             enemies.forEach(enemy => {
-                enemy.health -= 50 * level;
-                if (enemy.health <= 0) {
-                    enemies = enemies.filter(e => e !== enemy);
+                const dist = Math.hypot(centerX - enemy.x, centerY - enemy.y);
+                if (dist < blackHoleRadius) {
+                    enemy.health = 0;
                     points += 20 * level;
                 }
             });
+            enemies = enemies.filter(enemy => enemy.health > 0);
             for (let i = 0; i < 100; i++) {
-                particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
+                particles.push(createParticle(centerX, centerY, '#800080', 5, 10));
+            }
+            addLogMessage("Black Hole activated! Enemies sucked in.");
+        }
+
+        function activateLaserBeam() {
+            const laserDamage = 1000 * upgrades[UPGRADE_TYPES.LASER_BEAM].level;
+            enemies.forEach(enemy => {
+                const angle = Math.atan2(enemy.y - centerY, enemy.x - centerX);
+                const distanceFromCenter = Math.hypot(centerX - enemy.x, centerY - enemy.y);
+                if (Math.abs(angle) < Math.PI / 8) {
+                    enemy.health -= laserDamage * (1 - distanceFromCenter / Math.max(width, height));
+                }
+            });
+            for (let i = 0; i < 50; i++) {
+                const distance = Math.random() * Math.max(width, height);
+                const x = centerX + Math.cos(0) * distance;
+                const y = centerY + Math.sin(0) * distance;
+                particles.push(createParticle(x, y, '#ff0000', 3, 2));
+            }
+            addLogMessage("Omega Laser Beam fired!");
+        }
+
+        function activateQuantumLeap() {
+            const teleportDistance = 200 * upgrades[UPGRADE_TYPES.QUANTUM_LEAP].level;
+            enemies.forEach(enemy => {
+                const angle = Math.random() * Math.PI * 2;
+                enemy.x += Math.cos(angle) * teleportDistance;
+                enemy.y += Math.sin(angle) * teleportDistance;
+                enemy.x = Math.max(0, Math.min(width, enemy.x));
+                enemy.y = Math.max(0, Math.min(height, enemy.y));
+            });
+            for (let i = 0; i < 100; i++) {
+                particles.push(createParticle(Math.random() * width, Math.random() * height, '#00ffff', 2, 8));
+            }
+            addLogMessage("Quantum Leap activated! Enemies teleported.");
+        }
+
+        function activateMeteorShower() {
+            const meteorCount = 10 * upgrades[UPGRADE_TYPES.METEOR_SHOWER].level;
+            for (let i = 0; i < meteorCount; i++) {
+                meteors.push(createMeteor());
+            }
+            addLogMessage("Meteor Shower incoming!");
+        }
+
+        function activateSpecialAbility() {
+            const abilities = [
+                { name: "Black Hole", condition: upgrades[UPGRADE_TYPES.BLACK_HOLE].level > 0, action: activateBlackHole },
+                { name: "Laser Beam", condition: upgrades[UPGRADE_TYPES.LASER_BEAM].level > 0, action: activateLaserBeam },
+                { name: "Quantum Leap", condition: upgrades[UPGRADE_TYPES.QUANTUM_LEAP].level > 0, action: activateQuantumLeap },
+                { name: "Meteor Shower", condition: upgrades[UPGRADE_TYPES.METEOR_SHOWER].level > 0, action: activateMeteorShower }
+            ];
+
+            const availableAbilities = abilities.filter(ability => ability.condition);
+            if (availableAbilities.length > 0) {
+                const randomAbility = availableAbilities[Math.floor(Math.random() * availableAbilities.length)];
+                randomAbility.action();
+            } else {
+                // Fallback to original special ability if no new abilities are unlocked
+                enemies.forEach(enemy => {
+                    enemy.health -= 50 * level;
+                    if (enemy.health <= 0) {
+                        enemies = enemies.filter(e => e !== enemy);
+                        points += 20 * level;
+                    }
+                });
+                for (let i = 0; i < 50; i++) {
+                    particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
+                }
+                addLogMessage("Special ability activated!");
             }
         }
 
@@ -397,6 +539,13 @@
                 ctx.fill();
             });
 
+            meteors.forEach(meteor => {
+                ctx.beginPath();
+                ctx.arc(meteor.x, meteor.y, meteor.radius, 0, Math.PI * 2);
+                ctx.fillStyle = meteor.color;
+                ctx.fill();
+            });
+
             // Draw cursor
             ctx.beginPath();
             ctx.arc(centerX, centerY, 10, 0, Math.PI * 2);
@@ -420,12 +569,26 @@
             powerFill.style.width = `${powerMeter}%`;
         }
 
+        function addLogMessage(message) {
+            const gameLog = document.getElementById('gameLog');
+            const logEntry = document.createElement('p');
+            logEntry.textContent = message;
+            gameLog.appendChild(logEntry);
+            gameLog.scrollTop = gameLog.scrollHeight;
+
+            // Remove old messages if there are too many
+            while (gameLog.children.length > 50) {
+                gameLog.removeChild(gameLog.firstChild);
+            }
+        }
+
         function gameLoop() {
             if (isGameOver) return;
 
             updateParticles();
             updateEnemies();
             updateProjectiles();
+            updateMeteors();
             draw();
             updateUI();
 
@@ -446,10 +609,10 @@
         }
 
         function updateUpgradeMenu() {
+            const upgradeMenu = document.getElementById('upgradeMenu');
             upgradeMenu.innerHTML = '';
             upgradeDefinitions.forEach(upgrade => {
                 const button = document.createElement('button');
-                button.className = 'upgradeBtn';
                 button.textContent = `${upgrade.name} (${upgrades[upgrade.type].cost} points) - Level ${upgrades[upgrade.type].level}`;
                 button.onclick = () => purchaseUpgrade(upgrade.type);
                 upgradeMenu.appendChild(button);
@@ -463,6 +626,7 @@
                 upgrade.level++;
                 upgrade.cost = Math.floor(upgrade.cost * upgradeDefinitions.find(u => u.type === type).scaling);
                 updateUpgradeMenu();
+                addLogMessage(`Upgraded ${upgradeDefinitions.find(u => u.type === type).name} to level ${upgrade.level}`);
             }
         }
 
@@ -470,6 +634,7 @@
             isGameOver = true;
             gameOverScreen.style.display = 'block';
             finalScoreDisplay.textContent = Math.floor(points);
+            addLogMessage("Game Over! Final score: " + Math.floor(points));
         }
 
         function restartGame() {
@@ -481,8 +646,11 @@
             enemies = [];
             projectiles = [];
             particles = [];
+            meteors = [];
             initializeUpgrades();
             updateUpgradeMenu();
+            document.getElementById('gameLog').innerHTML = '';
+            addLogMessage("New game started!");
             gameLoop();
         }
 
@@ -493,15 +661,30 @@
 
             window.addEventListener('resize', resizeCanvas);
             canvas.addEventListener('click', shoot);
-            openUpgradeMenuBtn.addEventListener('click', () => {
-                upgradeMenu.style.display = upgradeMenu.style.display === 'none' ? 'block' : 'none';
+            document.querySelector('.dropbtn').addEventListener('click', function() {
+                document.getElementById("upgradeMenu").classList.toggle("show");
+            });
+            window.addEventListener('click', function(event) {
+                if (!event.target.matches('.dropbtn')) {
+                    var dropdowns = document.getElementsByClassName("dropdown-content");
+                    for (var i = 0; i < dropdowns.length; i++) {
+                        var openDropdown = dropdowns[i];
+                        if (openDropdown.classList.contains('show')) {
+                            openDropdown.classList.remove('show');
+                        }
+                    }
+                }
             });
             restartBtn.addEventListener('click', restartGame);
 
             setInterval(() => {
-                if (!isGameOver) level++;
+                if (!isGameOver) {
+                    level++;
+                    addLogMessage(`Advanced to level ${level}!`);
+                }
             }, 60000);
 
+            addLogMessage("Game started! Click to shoot enemies.");
             gameLoop();
         }
 
