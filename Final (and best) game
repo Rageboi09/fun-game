@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cosmic Defender: Sigma Evolution</title>
+    <title>Cosmic Defender: Sigma Evolution Ultimate</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -85,25 +85,41 @@
             background: #0ff;
             transition: width 0.3s;
         }
-        #gameOver {
+        #gameOver, #titleScreen {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background: rgba(0,0,0,0.8);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            display: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
         }
-        #restartBtn {
+        #gameOver h2, #titleScreen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        #gameOver p {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        button {
             background: #0ff;
             color: #000;
             border: none;
             padding: 10px 20px;
-            margin-top: 20px;
-            cursor: pointer;
+            margin: 10px;
             font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background-color: #00ffff;
+            transform: scale(1.1);
         }
         #gameLog {
             position: absolute;
@@ -120,9 +136,25 @@
         #gameLog p {
             margin: 5px 0;
         }
+        .paused::after {
+            content: "PAUSED";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            color: #0ff;
+            text-shadow: 0 0 10px #0ff;
+        }
     </style>
 </head>
 <body>
+    <div id="titleScreen">
+        <h1>Cosmic Defender:<br>Sigma Evolution Ultimate</h1>
+        <button id="easyBtn">Easy</button>
+        <button id="normalBtn">Normal</button>
+        <button id="hardBtn">Hard</button>
+    </div>
     <canvas id="gameCanvas"></canvas>
     <div id="ui">
         <div>Level: <span id="levelDisplay">1</span></div>
@@ -134,7 +166,7 @@
         <div id="upgradeMenu" class="dropdown-content"></div>
     </div>
     <div id="powerMeter"><div id="powerFill"></div></div>
-    <div id="gameOver">
+    <div id="gameOver" style="display: none;">
         <h2>Game Over</h2>
         <p>Your Score: <span id="finalScore"></span></p>
         <button id="restartBtn">Restart</button>
@@ -148,6 +180,10 @@
         const gameOverScreen = document.getElementById('gameOver');
         const finalScoreDisplay = document.getElementById('finalScore');
         const restartBtn = document.getElementById('restartBtn');
+        const titleScreen = document.getElementById('titleScreen');
+        const easyBtn = document.getElementById('easyBtn');
+        const normalBtn = document.getElementById('normalBtn');
+        const hardBtn = document.getElementById('hardBtn');
 
         let width, height, centerX, centerY;
         let particles = [];
@@ -161,6 +197,9 @@
         let powerMeter = 0;
         let isGameOver = false;
         let lastShotTime = 0;
+        let difficulty = 1;
+        let isPaused = false;
+        let isHackEnabled = false;
 
         const UPGRADE_TYPES = {
             DAMAGE: 'damage',
@@ -235,7 +274,7 @@
                 y = Math.random() < 0.5 ? 0 - radius : height + radius;
             }
             const angle = Math.atan2(centerY - y, centerX - x);
-            const speed = 1 + Math.random() * 0.5 * Math.log(level);
+            const speed = (1 + Math.random() * 0.5 * Math.log(level)) * difficulty;
             const velocity = {
                 x: Math.cos(angle) * speed,
                 y: Math.sin(angle) * speed
@@ -243,8 +282,8 @@
             return {
                 x, y, radius, velocity,
                 color: `hsl(${Math.random() * 360}, 50%, 50%)`,
-                health: 10 * level,
-                maxHealth: 10 * level
+                health: 10 * level * difficulty,
+                maxHealth: 10 * level * difficulty
             };
         }
 
@@ -319,7 +358,7 @@
                     const closestEnemy = enemies.reduce((closest, enemy) => {
                         const distance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
                         return distance < closest.distance ? { enemy, distance } : closest;
-                    }, { enemy: null, distance: Infinity }).enemy;
+                    }, { enemy: null, distance                    }, { enemy: null, distance: Infinity }).enemy;
 
                     if (closestEnemy) {
                         const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
@@ -583,7 +622,7 @@
         }
 
         function gameLoop() {
-            if (isGameOver) return;
+            if (isGameOver || isPaused) return;
 
             updateParticles();
             updateEnemies();
@@ -592,7 +631,7 @@
             draw();
             updateUI();
 
-            if (Math.random() < 0.02 + level * 0.002) {
+            if (Math.random() < 0.02 + level * 0.002 * difficulty) {
                 enemies.push(createEnemy());
             }
 
@@ -621,8 +660,8 @@
 
         function purchaseUpgrade(type) {
             const upgrade = upgrades[type];
-            if (points >= upgrade.cost) {
-                points -= upgrade.cost;
+            if (points >= upgrade.cost || isHackEnabled) {
+                if (!isHackEnabled) points -= upgrade.cost;
                 upgrade.level++;
                 upgrade.cost = Math.floor(upgrade.cost * upgradeDefinitions.find(u => u.type === type).scaling);
                 updateUpgradeMenu();
@@ -635,6 +674,7 @@
             gameOverScreen.style.display = 'block';
             finalScoreDisplay.textContent = Math.floor(points);
             addLogMessage("Game Over! Final score: " + Math.floor(points));
+            submitScore(Math.floor(points));
         }
 
         function restartGame() {
@@ -654,6 +694,42 @@
             gameLoop();
         }
 
+        function setDifficulty(difficultyLevel) {
+            switch(difficultyLevel) {
+            switch(difficultyLevel) {
+                case 'easy':
+                    difficulty = 0.5;
+                    break;
+                case 'normal':
+                    difficulty = 1;
+                    break;
+                case 'hard':
+                    difficulty = 2;
+                    break;
+            }
+            titleScreen.style.display = 'none';
+            startGame();
+        }
+
+        function enableHacks() {
+            isHackEnabled = true;
+            points += 1000000;
+            Object.keys(upgrades).forEach(key => {
+                upgrades[key].level += 100;
+            });
+            updateUpgradeMenu();
+            addLogMessage("Hacks enabled! Unlimited power!");
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            if (isPaused) {
+                canvas.classList.add('paused');
+            } else {
+                canvas.classList.remove('paused');
+            }
+        }
+
         function startGame() {
             resizeCanvas();
             initializeUpgrades();
@@ -663,32 +739,113 @@
             canvas.addEventListener('click', shoot);
             document.querySelector('.dropbtn').addEventListener('click', function() {
                 document.getElementById("upgradeMenu").classList.toggle("show");
+                togglePause();
             });
             window.addEventListener('click', function(event) {
-                if (!event.target.matches('.dropbtn')) {
+                if (!event.target.matches('.dropbtn') && !event.target.matches('.dropdown-content button')) {
                     var dropdowns = document.getElementsByClassName("dropdown-content");
                     for (var i = 0; i < dropdowns.length; i++) {
                         var openDropdown = dropdowns[i];
                         if (openDropdown.classList.contains('show')) {
                             openDropdown.classList.remove('show');
+                            togglePause();
                         }
                     }
                 }
             });
             restartBtn.addEventListener('click', restartGame);
 
+            window.addEventListener('keydown', function(event) {
+                if (event.key === '9') {
+                    enableHacks();
+                }
+            });
+
             setInterval(() => {
-                if (!isGameOver) {
+                if (!isGameOver && !isPaused) {
                     level++;
                     addLogMessage(`Advanced to level ${level}!`);
                 }
-            }, 60000);
+            }, 60000 / difficulty);
 
             addLogMessage("Game started! Click to shoot enemies.");
             gameLoop();
         }
 
-        startGame();
+        // Leaderboard implementation
+        const leaderboardDiv = document.createElement('div');
+        leaderboardDiv.id = 'leaderboard';
+        leaderboardDiv.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+        `;
+        document.body.appendChild(leaderboardDiv);
+
+        const leaderboardBtn = document.createElement('button');
+        leaderboardBtn.textContent = 'Leaderboard';
+        leaderboardBtn.style.cssText = `
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            z-index: 100;
+        `;
+        document.body.appendChild(leaderboardBtn);
+
+        leaderboardBtn.addEventListener('click', () => {
+            leaderboardDiv.style.display = leaderboardDiv.style.display === 'none' ? 'block' : 'none';
+            updateLeaderboard();
+        });
+
+        function filterOffensiveWords(name) {
+            const offensiveWords = ['badword1', 'badword2', 'badword3']; // Add more offensive words to this list
+            let filteredName = name;
+            offensiveWords.forEach(word => {
+                const regex = new RegExp(word, 'gi');
+                filteredName = filteredName.replace(regex, '*'.repeat(word.length));
+            });
+            return filteredName;
+        }
+
+        function submitScore(score) {
+            const playerName = filterOffensiveWords(prompt("Enter your name for the leaderboard:"));
+            if (playerName) {
+                const scoreData = { name: playerName, score: score };
+                
+                // In a real implementation, you would send this data to a server
+                // For this example, we'll use localStorage to simulate server storage
+                let leaderboard = JSON.parse(localStorage.getItem('leaderboard')) || [];
+                leaderboard.push(scoreData);
+                leaderboard.sort((a, b) => b.score - a.score);
+                leaderboard = leaderboard.slice(0, 10); // Keep only top 10 scores
+                localStorage.setItem('leaderboard', JSON.stringify(leaderboard));
+                
+                updateLeaderboard();
+            }
+        }
+
+        function updateLeaderboard() {
+            const leaderboard = JSON.parse(localStorage.getItem('leaderboard')) || [];
+            leaderboardDiv.innerHTML = '<h3>Leaderboard</h3>';
+            leaderboard.forEach((entry, index) => {
+                const scoreEntry = document.createElement('p');
+                scoreEntry.textContent = `${index + 1}. ${entry.name}: ${entry.score}`;
+                leaderboardDiv.appendChild(scoreEntry);
+            });
+        }
+
+        easyBtn.addEventListener('click', () => setDifficulty('easy'));
+        normalBtn.addEventListener('click', () => setDifficulty('normal'));
+        hardBtn.addEventListener('click', () => setDifficulty('hard'));
+
+        // Initial setup
+        updateLeaderboard();
     </script>
 </body>
 </html>
