@@ -18,57 +18,39 @@
             top: 0;
             left: 0;
         }
-        #ui {
+        #ui, #leaderboard {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            font-size: 18px;
             background: rgba(0,0,0,0.7);
             padding: 10px;
             border-radius: 5px;
         }
-        .dropdown {
-            position: absolute;
+        #ui {
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            font-size: 18px;
+        }
+        #leaderboard {
             top: 10px;
             right: 10px;
-            z-index: 100;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
         }
-        .dropbtn {
+        .button {
             background-color: #0ff;
             color: #000;
-            padding: 10px;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
             font-size: 16px;
-            border: none;
             cursor: pointer;
+            transition: all 0.3s;
         }
-        .dropdown-content {
-            display: none;
-            position: absolute;
-            right: 0;
-            background-color: rgba(0,0,0,0.9);
-            min-width: 250px;
-            box-shadow: 0px 8px 16px 0px rgba(0,255,255,0.2);
-            z-index: 1;
-            max-height: 80vh;
-            overflow-y: auto;
+        .button:hover {
+            background-color: #00ffff;
+            transform: scale(1.1);
         }
-        .dropdown-content button {
-            color: #0ff;
-            padding: 12px 16px;
-            text-decoration: none;
-            display: block;
-            background: none;
-            border: none;
-            width: 100%;
-            text-align: left;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .dropdown-content button:hover {
-            background-color: rgba(0,255,255,0.1);
-        }
-        .show {display: block;}
         #powerMeter {
             position: absolute;
             bottom: 10px;
@@ -103,24 +85,6 @@
             margin-bottom: 20px;
             text-align: center;
         }
-        #gameOver p {
-            font-size: 24px;
-            margin-bottom: 20px;
-        }
-        button {
-            background: #0ff;
-            color: #000;
-            border: none;
-            padding: 10px 20px;
-            margin: 10px;
-            font-size: 18px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        button:hover {
-            background-color: #00ffff;
-            transform: scale(1.1);
-        }
         #gameLog {
             position: absolute;
             bottom: 40px;
@@ -151,9 +115,9 @@
 <body>
     <div id="titleScreen">
         <h1>Cosmic Defender:<br>Sigma Evolution Ultimate</h1>
-        <button id="easyBtn">Easy</button>
-        <button id="normalBtn">Normal</button>
-        <button id="hardBtn">Hard</button>
+        <button id="easyBtn" class="button">Easy</button>
+        <button id="normalBtn" class="button">Normal</button>
+        <button id="hardBtn" class="button">Hard</button>
     </div>
     <canvas id="gameCanvas"></canvas>
     <div id="ui">
@@ -161,17 +125,16 @@
         <div>Points: <span id="pointsDisplay">0</span></div>
         <div>DPS: <span id="dpsDisplay">0</span></div>
     </div>
-    <div class="dropdown">
-        <button class="dropbtn">Upgrades</button>
-        <div id="upgradeMenu" class="dropdown-content"></div>
-    </div>
     <div id="powerMeter"><div id="powerFill"></div></div>
     <div id="gameOver" style="display: none;">
         <h2>Game Over</h2>
         <p>Your Score: <span id="finalScore"></span></p>
-        <button id="restartBtn">Restart</button>
+        <button id="restartBtn" class="button">Restart</button>
     </div>
     <div id="gameLog"></div>
+    <div id="leaderboard"></div>
+    <button id="leaderboardBtn" class="button" style="position: absolute; top: 50px; right: 10px;">Leaderboard</button>
+    <button id="upgradeBtn" class="button" style="position: absolute; top: 90px; right: 10px;">Upgrades</button>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -184,6 +147,9 @@
         const easyBtn = document.getElementById('easyBtn');
         const normalBtn = document.getElementById('normalBtn');
         const hardBtn = document.getElementById('hardBtn');
+        const leaderboardDiv = document.getElementById('leaderboard');
+        const leaderboardBtn = document.getElementById('leaderboardBtn');
+        const upgradeBtn = document.getElementById('upgradeBtn');
 
         let width, height, centerX, centerY;
         let particles = [];
@@ -358,7 +324,7 @@
                     const closestEnemy = enemies.reduce((closest, enemy) => {
                         const distance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
                         return distance < closest.distance ? { enemy, distance } : closest;
-                    }, { enemy: null, distance                    }, { enemy: null, distance: Infinity }).enemy;
+                    }, { enemy: null, distance: Infinity }).enemy;
 
                     if (closestEnemy) {
                         const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
@@ -647,15 +613,35 @@
             requestAnimationFrame(gameLoop);
         }
 
-        function updateUpgradeMenu() {
-            const upgradeMenu = document.getElementById('upgradeMenu');
-            upgradeMenu.innerHTML = '';
+        function showUpgradeMenu() {
+            const upgradeMenu = document.createElement('div');
+            upgradeMenu.style.cssText = `
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.9);
+                padding: 20px;
+                border-radius: 10px;
+                z-index: 1000;
+            `;
             upgradeDefinitions.forEach(upgrade => {
                 const button = document.createElement('button');
+                button.className = 'button';
                 button.textContent = `${upgrade.name} (${upgrades[upgrade.type].cost} points) - Level ${upgrades[upgrade.type].level}`;
                 button.onclick = () => purchaseUpgrade(upgrade.type);
                 upgradeMenu.appendChild(button);
             });
+            const closeButton = document.createElement('button');
+            closeButton.className = 'button';
+            closeButton.textContent = 'Close';
+            closeButton.onclick = () => {
+                document.body.removeChild(upgradeMenu);
+                togglePause();
+            };
+            upgradeMenu.appendChild(closeButton);
+            document.body.appendChild(upgradeMenu);
+            togglePause();
         }
 
         function purchaseUpgrade(type) {
@@ -664,14 +650,14 @@
                 if (!isHackEnabled) points -= upgrade.cost;
                 upgrade.level++;
                 upgrade.cost = Math.floor(upgrade.cost * upgradeDefinitions.find(u => u.type === type).scaling);
-                updateUpgradeMenu();
+                showUpgradeMenu();
                 addLogMessage(`Upgraded ${upgradeDefinitions.find(u => u.type === type).name} to level ${upgrade.level}`);
             }
         }
 
         function gameOver() {
             isGameOver = true;
-            gameOverScreen.style.display = 'block';
+            gameOverScreen.style.display = 'flex';
             finalScoreDisplay.textContent = Math.floor(points);
             addLogMessage("Game Over! Final score: " + Math.floor(points));
             submitScore(Math.floor(points));
@@ -688,7 +674,6 @@
             particles = [];
             meteors = [];
             initializeUpgrades();
-            updateUpgradeMenu();
             document.getElementById('gameLog').innerHTML = '';
             addLogMessage("New game started!");
             gameLoop();
@@ -696,14 +681,13 @@
 
         function setDifficulty(difficultyLevel) {
             switch(difficultyLevel) {
-            switch(difficultyLevel) {
                 case 'easy':
                     difficulty = 0.5;
                     break;
                 case 'normal':
                     difficulty = 1;
                     break;
-                case 'hard':
+                case'hard':
                     difficulty = 2;
                     break;
             }
@@ -717,7 +701,6 @@
             Object.keys(upgrades).forEach(key => {
                 upgrades[key].level += 100;
             });
-            updateUpgradeMenu();
             addLogMessage("Hacks enabled! Unlimited power!");
         }
 
@@ -733,28 +716,10 @@
         function startGame() {
             resizeCanvas();
             initializeUpgrades();
-            updateUpgradeMenu();
 
             window.addEventListener('resize', resizeCanvas);
             canvas.addEventListener('click', shoot);
-            document.querySelector('.dropbtn').addEventListener('click', function() {
-                document.getElementById("upgradeMenu").classList.toggle("show");
-                togglePause();
-            });
-            window.addEventListener('click', function(event) {
-                if (!event.target.matches('.dropbtn') && !event.target.matches('.dropdown-content button')) {
-                    var dropdowns = document.getElementsByClassName("dropdown-content");
-                    for (var i = 0; i < dropdowns.length; i++) {
-                        var openDropdown = dropdowns[i];
-                        if (openDropdown.classList.contains('show')) {
-                            openDropdown.classList.remove('show');
-                            togglePause();
-                        }
-                    }
-                }
-            });
-            restartBtn.addEventListener('click', restartGame);
-
+            upgradeBtn.addEventListener('click', showUpgradeMenu);
             window.addEventListener('keydown', function(event) {
                 if (event.key === '9') {
                     enableHacks();
@@ -771,37 +736,6 @@
             addLogMessage("Game started! Click to shoot enemies.");
             gameLoop();
         }
-
-        // Leaderboard implementation
-        const leaderboardDiv = document.createElement('div');
-        leaderboardDiv.id = 'leaderboard';
-        leaderboardDiv.style.cssText = `
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 5px;
-            max-height: 300px;
-            overflow-y: auto;
-            display: none;
-        `;
-        document.body.appendChild(leaderboardDiv);
-
-        const leaderboardBtn = document.createElement('button');
-        leaderboardBtn.textContent = 'Leaderboard';
-        leaderboardBtn.style.cssText = `
-            position: absolute;
-            top: 50px;
-            right: 10px;
-            z-index: 100;
-        `;
-        document.body.appendChild(leaderboardBtn);
-
-        leaderboardBtn.addEventListener('click', () => {
-            leaderboardDiv.style.display = leaderboardDiv.style.display === 'none' ? 'block' : 'none';
-            updateLeaderboard();
-        });
 
         function filterOffensiveWords(name) {
             const offensiveWords = ['badword1', 'badword2', 'badword3']; // Add more offensive words to this list
@@ -843,9 +777,19 @@
         easyBtn.addEventListener('click', () => setDifficulty('easy'));
         normalBtn.addEventListener('click', () => setDifficulty('normal'));
         hardBtn.addEventListener('click', () => setDifficulty('hard'));
+        restartBtn.addEventListener('click', restartGame);
+        leaderboardBtn.addEventListener('click', () => {
+            leaderboardDiv.style.display = leaderboardDiv.style.display === 'none' ? 'block' : 'none';
+            updateLeaderboard();
+        });
 
         // Initial setup
         updateLeaderboard();
+
+        // Start the game when the window loads
+        window.onload = function() {
+            titleScreen.style.display = 'flex';
+        };
     </script>
 </body>
 </html>
