@@ -110,6 +110,19 @@
             color: #0ff;
             text-shadow: 0 0 10px #0ff;
         }
+        #upgradeMenu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
+            max-height: 80vh;
+            overflow-y: auto;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -135,6 +148,7 @@
     <div id="leaderboard"></div>
     <button id="leaderboardBtn" class="button" style="position: absolute; top: 50px; right: 10px;">Leaderboard</button>
     <button id="upgradeBtn" class="button" style="position: absolute; top: 90px; right: 10px;">Upgrades</button>
+    <div id="upgradeMenu"></div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -150,6 +164,7 @@
         const leaderboardDiv = document.getElementById('leaderboard');
         const leaderboardBtn = document.getElementById('leaderboardBtn');
         const upgradeBtn = document.getElementById('upgradeBtn');
+        const upgradeMenu = document.getElementById('upgradeMenu');
 
         let width, height, centerX, centerY;
         let particles = [];
@@ -298,7 +313,7 @@
                 enemy.y += enemy.velocity.y * timeSlowFactor;
 
                 if (Math.hypot(centerX - enemy.x, centerY - enemy.y) < enemy.radius + 30) {
-                    if (upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
+                    if (isHackEnabled || upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
                         enemies.splice(index, 1);
                         for (let i = 0; i < 8; i++) {
                             particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
@@ -328,8 +343,10 @@
 
                     if (closestEnemy) {
                         const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
-                        projectile.velocity.x += Math.cos(angle) * 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
-                        projectile.velocity.y += Math.sin(angle) * 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        const homingStrength = 0.3 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        const homingStrength = 0.3 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        projectile.velocity.x = projectile.velocity.x * (1 - homingStrength) + Math.cos(angle) * homingStrength * 5;
+                        projectile.velocity.y = projectile.velocity.y * (1 - homingStrength) + Math.sin(angle) * homingStrength * 5;
                     }
                 }
 
@@ -558,7 +575,7 @@
             ctx.fill();
 
             // Draw shield if active
-            if (upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
+            if (upgrades[UPGRADE_TYPES.SHIELD].level > 0 || isHackEnabled) {
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, 30, 0, Math.PI * 2);
                 ctx.strokeStyle = '#0ff';
@@ -614,17 +631,7 @@
         }
 
         function showUpgradeMenu() {
-            const upgradeMenu = document.createElement('div');
-            upgradeMenu.style.cssText = `
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: rgba(0,0,0,0.9);
-                padding: 20px;
-                border-radius: 10px;
-                z-index: 1000;
-            `;
+            upgradeMenu.innerHTML = '';
             upgradeDefinitions.forEach(upgrade => {
                 const button = document.createElement('button');
                 button.className = 'button';
@@ -636,11 +643,11 @@
             closeButton.className = 'button';
             closeButton.textContent = 'Close';
             closeButton.onclick = () => {
-                document.body.removeChild(upgradeMenu);
+                upgradeMenu.style.display = 'none';
                 togglePause();
             };
             upgradeMenu.appendChild(closeButton);
-            document.body.appendChild(upgradeMenu);
+            upgradeMenu.style.display = 'block';
             togglePause();
         }
 
@@ -674,7 +681,7 @@
             particles = [];
             meteors = [];
             initializeUpgrades();
-            document.getElementById('gameLog').innerHTML = '';
+                        document.getElementById('gameLog').innerHTML = '';
             addLogMessage("New game started!");
             gameLoop();
         }
@@ -687,7 +694,7 @@
                 case 'normal':
                     difficulty = 1;
                     break;
-                case'hard':
+                case 'hard':
                     difficulty = 2;
                     break;
             }
@@ -698,10 +705,7 @@
         function enableHacks() {
             isHackEnabled = true;
             points += 1000000;
-            Object.keys(upgrades).forEach(key => {
-                upgrades[key].level += 100;
-            });
-            addLogMessage("Hacks enabled! Unlimited power!");
+            addLogMessage("Hacks enabled! 1,000,000 points added.");
         }
 
         function togglePause() {
