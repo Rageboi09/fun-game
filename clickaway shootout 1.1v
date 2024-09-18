@@ -23,11 +23,11 @@
             background: rgba(0,0,0,0.7);
             padding: 10px;
             border-radius: 5px;
+            z-index: 10;
         }
         #ui {
             top: 10px;
             left: 10px;
-            z-index: 10;
             font-size: 18px;
         }
         #leaderboard {
@@ -51,7 +51,7 @@
             background-color: #00ffff;
             transform: scale(1.1);
         }
-        #powerMeter {
+        #powerMeter, #bossMeter {
             position: absolute;
             bottom: 10px;
             left: 50%;
@@ -61,13 +61,18 @@
             background: rgba(0,0,0,0.5);
             border: 1px solid #0ff;
         }
-        #powerFill {
+        #bossMeter {
+            bottom: 40px;
+            border-color: #f00;
+        }
+        #powerFill, #bossFill {
             width: 0%;
             height: 100%;
-            background: #0ff;
             transition: width 0.3s;
         }
-        #gameOver, #titleScreen, #characterSelect {
+        #powerFill { background: #0ff; }
+        #bossFill { background: #f00; }
+        #gameOver, #titleScreen, #characterSelect, #modeSelect {
             position: absolute;
             top: 0;
             left: 0;
@@ -80,10 +85,12 @@
             align-items: center;
             z-index: 1000;
         }
-        #gameOver h2, #titleScreen h1, #characterSelect h2 {
+        #gameOver h2, #titleScreen h1, #characterSelect h2, #modeSelect h2 {
             font-size: 48px;
             margin-bottom: 20px;
             text-align: center;
+            color: #0ff;
+            text-shadow: 0 0 10px #0ff;
         }
         #gameLog {
             position: absolute;
@@ -129,28 +136,25 @@
             right: 10px;
             z-index: 10;
         }
-        #cooldownIndicator {
+        #cooldownIndicator, #abilityIndicator {
             position: absolute;
-            bottom: 50px;
             right: 10px;
             font-size: 14px;
             color: #0ff;
         }
-        #abilityIndicator {
-            position: absolute;
-            bottom: 90px;
-            right: 10px;
-            font-size: 14px;
-            color: #0ff;
-        }
+        #cooldownIndicator { bottom: 50px; }
+        #abilityIndicator { bottom: 90px; }
     </style>
 </head>
 <body>
     <div id="titleScreen">
         <h1>Cosmic Defender:<br>Sigma Evolution Ultimate</h1>
-        <button id="easyBtn" class="button">Easy</button>
-        <button id="normalBtn" class="button">Normal</button>
-        <button id="hardBtn" class="button">Hard</button>
+        <button id="startBtn" class="button">Start Game</button>
+    </div>
+    <div id="modeSelect" style="display: none;">
+        <h2>Select Game Mode</h2>
+        <button id="survivalBtn" class="button">Survival Mode</button>
+        <button id="bossBtn" class="button">Boss Mode</button>
     </div>
     <div id="characterSelect" style="display: none;">
         <h2>Choose Your Character</h2>
@@ -165,6 +169,7 @@
         <div>DPS: <span id="dpsDisplay">0</span></div>
     </div>
     <div id="powerMeter"><div id="powerFill"></div></div>
+    <div id="bossMeter" style="display: none;"><div id="bossFill"></div></div>
     <div id="gameOver" style="display: none;">
         <h2>Game Over</h2>
         <p>Your Score: <span id="finalScore"></span></p>
@@ -180,17 +185,20 @@
     <div id="abilityIndicator"></div>
 
     <script>
+        // Game variables
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const powerFill = document.getElementById('powerFill');
+        const bossFill = document.getElementById('bossFill');
         const gameOverScreen = document.getElementById('gameOver');
         const finalScoreDisplay = document.getElementById('finalScore');
         const restartBtn = document.getElementById('restartBtn');
         const titleScreen = document.getElementById('titleScreen');
+        const modeSelect = document.getElementById('modeSelect');
         const characterSelect = document.getElementById('characterSelect');
-        const easyBtn = document.getElementById('easyBtn');
-        const normalBtn = document.getElementById('normalBtn');
-        const hardBtn = document.getElementById('hardBtn');
+        const startBtn = document.getElementById('startBtn');
+        const survivalBtn = document.getElementById('survivalBtn');
+        const bossBtn = document.getElementById('bossBtn');
         const defaultBtn = document.getElementById('defaultBtn');
         const shotgunnerBtn = document.getElementById('shotgunnerBtn');
         const assassinBtn = document.getElementById('assassinBtn');
@@ -213,17 +221,19 @@
         let powerMeter = 0;
         let isGameOver = false;
         let lastShotTime = 0;
-        let difficulty = 1;
+        let difficulty = .7;
         let isPaused = false;
         let isHackEnabled = false;
         let animationFrameId = null;
         let isTimeStopActive = false;
         let timeStopCooldown = 0;
-        let timeStopDuration = 5000; // 5 seconds
+        let timeStopDuration = 5000;
         let timeStopMaxUses = 1;
         let timeStopUsesLeft = 1;
         let lastPowerMeterIncrease = Date.now();
         let playerCharacter = null;
+        let isBossMode = false;
+        let boss = null;
 
         const UPGRADE_TYPES = {
             DAMAGE: 'damage',
@@ -239,7 +249,10 @@
             BLACK_HOLE: 'blackHole',
             LASER_BEAM: 'laserBeam',
             QUANTUM_LEAP: 'quantumLeap',
-            METEOR_SHOWER: 'meteorShower'
+            METEOR_SHOWER: 'meteorShower',
+            BOUNCE: 'bounce',
+            DOUBLE_POINTS: 'doublePoints',
+            STEALTH_DURATION: 'stealthDuration'
         };
 
         const upgradeDefinitions = [
@@ -256,31 +269,18 @@
             { type: UPGRADE_TYPES.BLACK_HOLE, name: 'Black Hole Generator', baseCost: 500, scaling: 4 },
             { type: UPGRADE_TYPES.LASER_BEAM, name: 'Omega Laser Beam', baseCost: 750, scaling: 4.5 },
             { type: UPGRADE_TYPES.QUANTUM_LEAP, name: 'Quantum Leap Drive', baseCost: 1000, scaling: 5 },
-            { type: UPGRADE_TYPES.METEOR_SHOWER, name: 'Meteor Shower', baseCost: 1200, scaling: 5.5 }
+            { type: UPGRADE_TYPES.METEOR_SHOWER, name: 'Meteor Shower', baseCost: 1200, scaling: 5.5 },
+            { type: UPGRADE_TYPES.BOUNCE, name: 'Bouncing Projectiles (Shotgunner)', baseCost: 100, scaling: 2 },
+            { type: UPGRADE_TYPES.DOUBLE_POINTS, name: 'Double Points (Default)', baseCost: 200, scaling: 2.5 },
+            { type: UPGRADE_TYPES.STEALTH_DURATION, name: 'Increase Stealth Duration (Assassin)', baseCost: 150, scaling: 2.2 }
         ];
 
-        class DefaultCharacter {
-            constructor() {
-                this.name = 'Default';
-                this.baseDamage = 10;
-                this.fireRate = 500;
-                this.projectileSpeed = 5;
-                this.chargeShot = {
-                    isCharging: false,
-                    chargeStartTime: 0,
-                    maxChargeDuration: 2000,
-                    damageMultiplier: 3
-                };
-            }
-
-            shoot(x, y, angle) {
-                if (this.chargeShot.isCharging) {
-                    const chargeDuration = Date.now() - this.chargeShot.chargeStartTime;
-                    const chargeRatio = Math.min(chargeDuration / this.chargeShot.maxChargeDuration, 1);
-                    const damage = this.baseDamage * (1 + chargeRatio * (this.chargeShot.damageMultiplier - 1));
-                    return this.createProjectile(x, y, angle, damage, this.projectileSpeed * (1 + chargeRatio));
-                }
-                return this.createProjectile(x, y, angle, this.baseDamage, this.projectileSpeed);
+        class Character {
+            constructor(name, baseDamage, fireRate, projectileSpeed) {
+                this.name = name;
+                this.baseDamage = baseDamage;
+                this.fireRate = fireRate;
+                this.projectileSpeed = projectileSpeed;
             }
 
             createProjectile(x, y, angle, damage, speed) {
@@ -293,184 +293,100 @@
                     },
                     color: '#fff',
                     damage: damage,
-                    pierceCount: 1
+                    pierceCount: 1 + upgrades[UPGRADE_TYPES.PIERCING].level
                 };
             }
 
-            startChargeShot() {
-                this.chargeShot.isCharging = true;
-                this.chargeShot.chargeStartTime = Date.now();
-            }
-
-            releaseChargeShot() {
-                this.chargeShot.isCharging = false;
-                return this.chargeShot.chargeStartTime !== 0;
+            shoot(x, y, targetX, targetY) {
+                const angle = Math.atan2(targetY - y, targetX - x);
+                const damage = this.baseDamage * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
+                const speed = this.projectileSpeed * (1 + 0.1 * upgrades[UPGRADE_TYPES.PROJECTILE_SPEED].level);
+                return this.createProjectile(x, y, angle, damage, speed);
             }
 
             update() {
-                if (this.chargeShot.isCharging) {
-                    const chargeDuration = Date.now() - this.chargeShot.chargeStartTime;
-                    const chargeRatio = Math.min(chargeDuration / this.chargeShot.maxChargeDuration, 1);
-                    abilityIndicator.textContent = `Charge: ${Math.floor(chargeRatio * 100)}%`;
-                } else {
-                    abilityIndicator.textContent = 'Charge Shot: Ready';
-                }
+                // Default update method
             }
         }
 
-        class Shotgunner {
+        class DefaultCharacter extends Character {
             constructor() {
-                this.name = 'Shotgunner';
-                this.baseDamage = 5;
-                this.fireRate = 1000;
-                this.projectileSpeed = 6;
-                this.holdDuration = 500;
-                this.holdStartTime = 0;
-                this.isHolding = false;
-                this.splitDistance = 100;
+                super('Default', 10, 500, 5);
+                this.doublePointsActive = false;
+            }
+
+            shoot(x, y, targetX, targetY) {
+                const projectile = super.shoot(x, y, targetX, targetY);
+                if (this.doublePointsActive) {
+                    projectile.doublePoints = true;
+                }
+                return projectile;
+            }
+
+            update() {
+                abilityIndicator.textContent = `Double Points: ${this.doublePointsActive ? 'Active' : 'Ready'}`;
+            }
+        }
+
+        class Shotgunner extends Character {
+            constructor() {
+                super('Shotgunner', 5, 1000, 6);
                 this.pelletCount = 8;
                 this.spreadAngle = Math.PI / 8;
+                this.bounceCount = 0;
             }
 
-            shoot(x, y, angle) {
-                if (this.isHolding && Date.now() - this.holdStartTime >= this.holdDuration) {
-                    return this.createShotgunBullet(x, y, angle);
-                }
-                return null;
-            }
-
-            createShotgunBullet(x, y, angle) {
-                return {
-                    x, y, 
-                    radius: 10,
-                    velocity: {
-                        x: Math.cos(angle) * this.projectileSpeed,
-                                                y: Math.sin(angle) * this.projectileSpeed
-                    },
-                    color: '#ffa500',
-                    damage: this.baseDamage * 2,
-                    pierceCount: 1,
-                    distanceTraveled: 0,
-                    split: false,
-                    update: function() {
-                        this.x += this.velocity.x;
-                        this.y += this.velocity.y;
-                        this.distanceTraveled += Math.hypot(this.velocity.x, this.velocity.y);
-                    },
-                    shouldSplit: function() {
-                        return !this.split && this.distanceTraveled >= this.splitDistance;
-                    }
-                };
-            }
-
-            createPellets(bullet) {
+            shoot(x, y, targetX, targetY) {
+                const angle = Math.atan2(targetY - y, targetX - x);
+                const damage = this.baseDamage * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
+                const speed = this.projectileSpeed * (1 + 0.1 * upgrades[UPGRADE_TYPES.PROJECTILE_SPEED].level);
                 const pellets = [];
+
                 for (let i = 0; i < this.pelletCount; i++) {
                     const spreadAngle = (i / (this.pelletCount - 1) - 0.5) * this.spreadAngle;
-                    const angle = Math.atan2(bullet.velocity.y, bullet.velocity.x) + spreadAngle;
-                    pellets.push({
-                        x: bullet.x,
-                        y: bullet.y,
-                        radius: 3,
-                        velocity: {
-                            x: Math.cos(angle) * this.projectileSpeed * 1.5,
-                            y: Math.sin(angle) * this.projectileSpeed * 1.5
-                        },
-                        color: '#ffa500',
-                        damage: this.baseDamage,
-                        pierceCount: 1
-                    });
+                    const pellet = this.createProjectile(x, y, angle + spreadAngle, damage, speed);
+                    pellet.bounceCount = this.bounceCount;
+                    pellets.push(pellet);
                 }
+
                 return pellets;
             }
 
-            startHold() {
-                this.isHolding = true;
-                this.holdStartTime = Date.now();
-            }
-
-            releaseHold() {
-                this.isHolding = false;
-            }
-
             update() {
-                if (this.isHolding) {
-                    const holdDuration = Date.now() - this.holdStartTime;
-                    const chargeRatio = Math.min(holdDuration / this.holdDuration, 1);
-                    abilityIndicator.textContent = `Shotgun Charge: ${Math.floor(chargeRatio * 100)}%`;
-                } else {
-                    abilityIndicator.textContent = 'Shotgun: Ready';
-                }
+                abilityIndicator.textContent = `Bounces: ${this.bounceCount}`;
             }
         }
 
-        class Assassin {
+        class Assassin extends Character {
             constructor() {
-                this.name = 'Assassin';
-                this.baseDamage = 3;
-                this.fireRate = 200;
-                this.projectileSpeed = 7;
+                super('Assassin', 3, 200, 7);
                 this.moveSpeed = 5;
-                this.dashCooldown = 3000;
-                this.lastDashTime = 0;
-                this.dashDistance = 150;
+                this.teleportCooldown = 5000;
+                this.lastTeleportTime = 0;
                 this.stealthDuration = 3000;
                 this.isStealthActive = false;
                 this.lastStealthTime = 0;
             }
 
-            shoot(x, y, angle) {
-                return this.createProjectile(x, y, angle, this.baseDamage, this.projectileSpeed);
-            }
-
-            createProjectile(x, y, angle, damage, speed) {
-                return {
-                    x, y,
-                    radius: 3,
-                    velocity: {
-                        x: Math.cos(angle) * speed,
-                        y: Math.sin(angle) * speed
-                    },
-                    color: '#ff00ff',
-                    damage: damage,
-                    pierceCount: 1
-                };
-            }
-
-            move(direction) {
-                switch(direction) {
-                    case 'left':
-                        centerX -= this.moveSpeed;
-                        break;
-                    case 'right':
-                        centerX += this.moveSpeed;
-                        break;
-                    case 'up':
-                        centerY -= this.moveSpeed;
-                        break;
-                    case 'down':
-                        centerY += this.moveSpeed;
-                        break;
-                }
-                centerX = Math.max(30, Math.min(width - 30, centerX));
-                centerY = Math.max(30, Math.min(height - 30, centerY));
-            }
-
-            dash(angle) {
+            teleport() {
                 const currentTime = Date.now();
-                if (currentTime - this.lastDashTime >= this.dashCooldown) {
-                    centerX += Math.cos(angle) * this.dashDistance;
-                    centerY += Math.sin(angle) * this.dashDistance;
-                    centerX = Math.max(30, Math.min(width - 30, centerX));
-                    centerY = Math.max(30, Math.min(height - 30, centerY));
-                    this.lastDashTime = currentTime;
-                    addLogMessage("Assassin dashed!");
+                if (currentTime - this.lastTeleportTime >= this.teleportCooldown) {
+                    const safeX = Math.random() * (width - 60) + 30;
+                    const safeY = Math.random() * (height - 60) + 30;
+                    centerX = safeX;
+                    centerY = safeY;
+                    this.lastTeleportTime = currentTime;
+                    setTimeout(() => {
+                        centerX = width / 2;
+                        centerY = height / 2;
+                    }, 3000);
+                    addLogMessage("Assassin teleported to safety!");
                 }
             }
 
             toggleStealth() {
                 const currentTime = Date.now();
-                if (!this.isStealthActive && currentTime - this.lastStealthTime >= this.dashCooldown) {
+                if (!this.isStealthActive && currentTime - this.lastStealthTime >= this.teleportCooldown) {
                     this.isStealthActive = true;
                     this.lastStealthTime = currentTime;
                     setTimeout(() => {
@@ -482,17 +398,127 @@
 
             update() {
                 const currentTime = Date.now();
-                const dashCooldownRemaining = Math.max(0, this.dashCooldown - (currentTime - this.lastDashTime));
-                const stealthCooldownRemaining = Math.max(0, this.dashCooldown - (currentTime - this.lastStealthTime));
+                const teleportCooldownRemaining = Math.max(0, this.teleportCooldown - (currentTime - this.lastTeleportTime));
+                const stealthCooldownRemaining = Math.max(0, this.teleportCooldown - (currentTime - this.lastStealthTime));
                 
                 if (this.isStealthActive) {
                     const stealthTimeRemaining = Math.max(0, this.stealthDuration - (currentTime - this.lastStealthTime));
                     abilityIndicator.textContent = `Stealth: ${Math.floor(stealthTimeRemaining / 1000)}s`;
-                } else if (dashCooldownRemaining === 0 && stealthCooldownRemaining === 0) {
-                    abilityIndicator.textContent = 'Dash & Stealth: Ready';
+                } else if (teleportCooldownRemaining === 0 && stealthCooldownRemaining === 0) {
+                    abilityIndicator.textContent = 'Teleport & Stealth: Ready';
                 } else {
-                    abilityIndicator.textContent = `Dash: ${Math.ceil(dashCooldownRemaining / 1000)}s | Stealth: ${Math.ceil(stealthCooldownRemaining / 1000)}s`;
+                    abilityIndicator.textContent = `Teleport: ${Math.ceil(teleportCooldownRemaining / 1000)}s | Stealth: ${Math.ceil(stealthCooldownRemaining / 1000)}s`;
                 }
+            }
+        }
+
+        class Boss {
+            constructor() {
+                this.x = width / 2;
+                this.y = height / 4;
+                this.radius = 50;
+                this.health = 10000;
+                this.maxHealth = 10000;
+                this.color = '#ff0000';
+                this.attackCooldown = 2000;
+                this.lastAttackTime = 0;
+                this.attackPatterns = [
+                    this.laserAttack,
+                    this.bulletHellAttack,
+                    this.shockwaveAttack
+                ];
+            }
+
+            update() {
+                const currentTime = Date.now();
+                if (currentTime - this.lastAttackTime >= this.attackCooldown) {
+                    const randomAttack = this.attackPatterns[Math.floor(Math.random() * this.attackPatterns.length)];
+                    randomAttack.call(this);
+                    this.lastAttackTime = currentTime;
+                }
+                bossFill.style.width = `${(this.health / this.maxHealth) * 100}%`;
+            }
+
+            laserAttack() {
+                const angle = Math.atan2(centerY - this.y, centerX - this.x);
+                const laserEnd = {
+                    x: this.x + Math.cos(angle) * Math.max(width, height),
+                    y: this.y + Math.sin(angle) * Math.max(width, height)
+                };
+                
+                // Visual effect
+                particles.push(...Array(20).fill().map(() => createParticle(
+                    this.x + Math.random() * 100 - 50,
+                    this.y + Math.random() * 100 - 50,
+                    '#ff0000',
+                    5,
+                    10
+                )));
+
+                // Damage calculation
+                if (Math.abs(angle - Math.atan2(centerY - this.y, centerX - this.x)) < Math.PI / 8) {
+                    if (!playerCharacter.isStealthActive) {
+                        gameOver();
+                    }
+                }
+
+                addLogMessage("Boss fired a laser beam!");
+            }
+
+            bulletHellAttack() {
+                for (let i = 0; i < 36; i++) {
+                    const angle = (i / 36) * Math.PI * 2;
+                    enemies.push({
+                        x: this.x,
+                        y: this.y,
+                        radius: 5,
+                        velocity: {
+                            x: Math.cos(angle) * 3,
+                            y: Math.sin(angle) * 3
+                        },
+                        color: '#ff0000',
+                        health: 1,
+                        maxHealth: 1
+                    });
+                }
+                addLogMessage("Boss unleashed a bullet hell attack!");
+            }
+
+            shockwaveAttack() {
+                const shockwave = {
+                    x: this.x,
+                    y: this.y,
+                    radius: 0,
+                    maxRadius: Math.max(width, height),
+                    color: 'rgba(255, 0, 0, 0.5)'
+                };
+
+                const expandShockwave = setInterval(() => {
+                    shockwave.radius += 10;
+                    if (shockwave.radius >= shockwave.maxRadius) {
+                        clearInterval(expandShockwave);
+                    }
+
+                    const distToPlayer = Math.hypot(centerX - this.x, centerY - this.y);
+                    if (Math.abs(distToPlayer - shockwave.radius) < 20 && !playerCharacter.isStealthActive) {
+                        gameOver();
+                    }
+                }, 16);
+
+                addLogMessage("Boss created a shockwave!");
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                // Health bar
+                ctx.fillStyle = 'red';
+                ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, this.radius * 2, 5);
+                ctx.fillStyle = 'green';
+                ctx.fillRect(this.x - this.radius, this.y - this.radius - 10, (this.health / this.maxHealth) * this.radius * 2, 5);
             }
         }
 
@@ -509,6 +535,10 @@
             canvas.height = height;
             centerX = width / 2;
             centerY = height / 2;
+            if (boss) {
+                boss.x = width / 2;
+                boss.y = height / 4;
+            }
         }
 
         function createParticle(x, y, color, size = 2, speed = 3) {
@@ -548,19 +578,6 @@
             };
         }
 
-        function createMeteor() {
-            const radius = Math.random() * 30 + 20;
-            const x = Math.random() * width;
-            const y = -radius;
-            const speed = 2 + Math.random() * 2;
-            return {
-                x, y, radius,
-                velocity: { x: 0, y: speed },
-                color: '#FFA500',
-                damage: 50 * upgrades[UPGRADE_TYPES.METEOR_SHOWER].level
-            };
-        }
-
         function updateParticles() {
             particles.forEach((particle, index) => {
                 particle.x += particle.velocity.x;
@@ -585,7 +602,7 @@
                             for (let i = 0; i < 8; i++) {
                                 particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
                             }
-                        } else {
+                        } else if (!playerCharacter.isStealthActive) {
                             gameOver();
                         }
                     }
@@ -595,120 +612,113 @@
 
         function updateProjectiles() {
             projectiles.forEach((projectile, pIndex) => {
-                if (projectile.update) {
-                    projectile.update();
-                    if (projectile.shouldSplit && projectile.shouldSplit()) {
-                        const pellets = playerCharacter.createPellets(projectile);
-                        projectiles.splice(pIndex, 1, ...pellets);
-                        return;
+                projectile.x += projectile.velocity.x;
+                projectile.y += projectile.velocity.y;
+
+                // Bounce logic (only for Shotgunner)
+                if (playerCharacter instanceof Shotgunner && projectile.bounceCount > 0) {
+                    if (projectile.x - projectile.radius <= 0 || projectile.x + projectile.radius >= width) {
+                        projectile.velocity.x = -projectile.velocity.x;
+                        projectile.bounceCount--;
                     }
-                } else {
-                    projectile.x += projectile.velocity.x;
-                    projectile.y += projectile.velocity.y;
+                    if (projectile.y - projectile.radius <= 0 || projectile.y + projectile.radius >= height) {
+                        projectile.velocity.y = -projectile.velocity.y;
+                        projectile.bounceCount--;
+                    }
                 }
 
                 if (projectile.x < 0 || projectile.x > width || projectile.y < 0 || projectile.y > height) {
-                    projectiles.splice(pIndex, 1);
+                    if (!(playerCharacter instanceof Shotgunner) || projectile.bounceCount <= 0) {
+                        projectiles.splice(pIndex, 1);
+                    }
                     return;
                 }
 
+                // Homing logic
                 if (upgrades[UPGRADE_TYPES.HOMING].level > 0) {
-                    const closestEnemy = enemies.reduce((closest, enemy) => {
+                    const target = isBossMode ? boss : enemies.reduce((closest, enemy) => {
                         const distance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
                         return distance < closest.distance ? { enemy, distance } : closest;
                     }, { enemy: null, distance: Infinity }).enemy;
 
-                    if (closestEnemy) {
-                        const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
-                        const homingStrength = 0.3 * upgrades[UPGRADE_TYPES.HOMING].level;
-                        projectile.velocity.x = projectile.velocity.x * (1 - homingStrength) + Math.cos(angle) * homingStrength * 5;
-                        projectile.velocity.y = projectile.velocity.y * (1 - homingStrength) + Math.sin(angle) * homingStrength * 5;
+                    if (target) {
+                        const angle = Math.atan2(target.y - projectile.y, target.x - projectile.x);
+                        const homingStrength = 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        projectile.velocity.x += Math.cos(angle) * homingStrength;
+                        projectile.velocity.y += Math.sin(angle) * homingStrength;
+                        
+                        // Normalize velocity to maintain constant speed
+                        const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+                        projectile.velocity.x = (projectile.velocity.x / speed) * projectile.speed;
+                        projectile.velocity.y = (projectile.velocity.y / speed) * projectile.speed;
                     }
                 }
 
-                enemies.forEach((enemy, eIndex) => {
-                    const dist = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
-                    if (dist - enemy.radius - projectile.radius < 1) {
-                        enemy.health -= projectile.damage;
-
-                        if (upgrades[UPGRADE_TYPES.EXPLOSION].level > 0) {
-                            const explosionRadius = 50 * upgrades[UPGRADE_TYPES.EXPLOSION].level;
-                            enemies.forEach(otherEnemy => {
-                                const explosionDist = Math.hypot(enemy.x - otherEnemy.x, enemy.y - otherEnemy.y);
-                                if (explosionDist < explosionRadius) {
-                                    otherEnemy.health -= projectile.damage * 0.5;
-                                }
-                            });
-                            for (let i = 0; i < 8; i++) {
-                                particles.push(createParticle(enemy.x, enemy.y, '#f00', 3, 5));
-                            }
+                if (isBossMode) {
+                    const dist = Math.hypot(projectile.x - boss.x, projectile.y - boss.y);
+                    if (dist - boss.radius - projectile.radius < 1) {
+                        boss.health -= projectile.damage;
+                        if (boss.health <= 0) {
+                            gameOver(true);
                         }
+                        projectiles.splice(pIndex, 1);
+                    }
+                } else {
+                    enemies.forEach((enemy, eIndex) => {
+                        const dist = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
+                        if (dist - enemy.radius - projectile.radius < 1) {
+                            enemy.health -= projectile.damage;
 
-                        if (upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level > 0) {
-                            let chainCount = upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level;
-                            let lastEnemy = enemy;
-                            while (chainCount > 0) {
-                                const closestEnemy = enemies.find(e => e !== lastEnemy && Math.hypot(e.x - lastEnemy.x, e.y - lastEnemy.y) < 100);
-                                if (closestEnemy) {
-                                    closestEnemy.health -= projectile.damage * 0.3;
-                                    lastEnemy = closestEnemy;
-                                    chainCount--;
-                                    for (let i = 0; i < 4; i++) {
-                                        particles.push(createParticle(closestEnemy.x, closestEnemy.y, '#ff0', 2, 4));
+                            if (upgrades[UPGRADE_TYPES.EXPLOSION].level > 0) {
+                                const explosionRadius = 50 * upgrades[UPGRADE_TYPES.EXPLOSION].level;
+                                enemies.forEach(otherEnemy => {
+                                    const explosionDist = Math.hypot(enemy.x - otherEnemy.x, enemy.y - otherEnemy.y);
+                                    if (explosionDist < explosionRadius) {
+                                        otherEnemy.health -= projectile.damage * 0.5;
                                     }
-                                } else {
-                                    break;
+                                });
+                                for (let i = 0; i < 8; i++) {
+                                    particles.push(createParticle(enemy.x, enemy.y, '#f00', 3, 5));
                                 }
                             }
-                        }
 
-                        if (enemy.health <= 0) {
-                            enemies.splice(eIndex, 1);
-                            let pointsGained = 10 * level;
-                            if (playerCharacter instanceof Shotgunner) {
-                                pointsGained /= 2;
+                            if (upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level > 0) {
+                                let chainCount = upgrades[UPGRADE_TYPES.CHAIN_LIGHTNING].level;
+                                let lastEnemy = enemy;
+                                while (chainCount > 0) {
+                                    const closestEnemy = enemies.find(e => e !== lastEnemy && Math.hypot(e.x - lastEnemy.x, e.y - lastEnemy.y) < 100);
+                                    if (closestEnemy) {
+                                        closestEnemy.health -= projectile.damage * 0.3;
+                                        lastEnemy = closestEnemy;
+                                        chainCount--;
+                                        for (let i = 0; i < 4; i++) {
+                                            particles.push(createParticle(closestEnemy.x, closestEnemy.y, '#ff0', 2, 4));
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
                             }
-                            points += pointsGained;
-                            for (let i = 0; i < 8; i++) {
-                                particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
+
+                            if (enemy.health <= 0) {
+                                enemies.splice(eIndex, 1);
+                                let pointsGained = 10 * level;
+                                if (playerCharacter instanceof DefaultCharacter && projectile.doublePoints) {
+                                    pointsGained *= 2;
+                                }
+                                points += pointsGained;
+                                for (let i = 0; i < 8; i++) {
+                                    particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
+                                }
+                            }
+
+                            projectile.pierceCount--;
+                            if (projectile.pierceCount <= 0) {
+                                projectiles.splice(pIndex, 1);
                             }
                         }
-
-                        projectile.pierceCount--;
-                        if (projectile.pierceCount <= 0) {
-                            projectiles.splice(pIndex, 1);
-                        }
-                    }
-                });
-            });
-        }
-
-        function updateMeteors() {
-            meteors.forEach((meteor, index) => {
-                meteor.y += meteor.velocity.y;
-
-                if (meteor.y > height + meteor.radius) {
-                    meteors.splice(index, 1);
-                    return;
+                    });
                 }
-
-                enemies.forEach((enemy, eIndex) => {
-                    const dist = Math.hypot(meteor.x - enemy.x, meteor.y - enemy.y);
-                    if (dist < meteor.radius + enemy.radius) {
-                        enemy.health -= meteor.damage;
-                        if (enemy.health <= 0) {
-                            enemies.splice(eIndex, 1);
-                                                        let pointsGained = 10 * level;
-                            if (playerCharacter instanceof Shotgunner) {
-                                pointsGained /= 2;
-                            }
-                            points += pointsGained;
-                            for (let i = 0; i < 8; i++) {
-                                particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
-                            }
-                        }
-                    }
-                });
             });
         }
 
@@ -719,84 +729,32 @@
 
             lastShotTime = currentTime;
 
-            const angle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
+            const targetX = event.clientX;
+            const targetY = event.clientY;
 
-            if (playerCharacter instanceof Shotgunner) {
-                const shotgunBullet = playerCharacter.shoot(centerX, centerY, angle);
-                if (shotgunBullet) {
-                    projectiles.push(shotgunBullet);
-                }
-            } else if (playerCharacter instanceof DefaultCharacter) {
-                const projectile = playerCharacter.shoot(centerX, centerY, angle);
-                projectiles.push(projectile);
+            const newProjectiles = playerCharacter.shoot(centerX, centerY, targetX, targetY);
+            if (Array.isArray(newProjectiles)) {
+                projectiles.push(...newProjectiles);
             } else {
-                const multiShot = upgrades[UPGRADE_TYPES.MULTI_SHOT].level;
-                for (let i = 0; i < (multiShot + 1); i++) {
-                    const spread = (i - multiShot / 2) * (Math.PI / 18);
-                    projectiles.push(playerCharacter.shoot(centerX, centerY, angle + spread));
-                }
+                projectiles.push(newProjectiles);
             }
-        }
 
-        function activateBlackHole() {
-            const blackHoleRadius = 100 * upgrades[UPGRADE_TYPES.BLACK_HOLE].level;
-            enemies.forEach(enemy => {
-                const dist = Math.hypot(centerX - enemy.x, centerY - enemy.y);
-                if (dist < blackHoleRadius) {
-                    enemy.health = 0;
-                    let pointsGained = 20 * level;
-                    if (playerCharacter instanceof Shotgunner) {
-                        pointsGained /= 2;
+            // Apply multi-shot upgrade
+            const multiShot = upgrades[UPGRADE_TYPES.MULTI_SHOT].level;
+            if (multiShot > 0) {
+                for (let i = 1; i <= multiShot; i++) {
+                    const angle = Math.atan2(targetY - centerY, targetX - centerX);
+                    const spread = (i / (multiShot + 1) - 0.5) * (Math.PI / 9);
+                    const newTargetX = centerX + Math.cos(angle + spread) * 1000;
+                    const newTargetY = centerY + Math.sin(angle + spread) * 1000;
+                    const additionalProjectiles = playerCharacter.shoot(centerX, centerY, newTargetX, newTargetY);
+                    if (Array.isArray(additionalProjectiles)) {
+                        projectiles.push(...additionalProjectiles);
+                    } else {
+                        projectiles.push(additionalProjectiles);
                     }
-                    points += pointsGained;
                 }
-            });
-            enemies = enemies.filter(enemy => enemy.health > 0);
-            for (let i = 0; i < 100; i++) {
-                particles.push(createParticle(centerX, centerY, '#800080', 5, 10));
             }
-            addLogMessage("Black Hole activated! Enemies sucked in.");
-        }
-
-        function activateLaserBeam() {
-            const laserDamage = 1000 * upgrades[UPGRADE_TYPES.LASER_BEAM].level;
-            enemies.forEach(enemy => {
-                const angle = Math.atan2(enemy.y - centerY, enemy.x - centerX);
-                const distanceFromCenter = Math.hypot(centerX - enemy.x, centerY - enemy.y);
-                if (Math.abs(angle) < Math.PI / 8) {
-                    enemy.health -= laserDamage * (1 - distanceFromCenter / Math.max(width, height));
-                }
-            });
-            for (let i = 0; i < 50; i++) {
-                const distance = Math.random() * Math.max(width, height);
-                const x = centerX + Math.cos(0) * distance;
-                const y = centerY + Math.sin(0) * distance;
-                particles.push(createParticle(x, y, '#ff0000', 3, 2));
-            }
-            addLogMessage("Omega Laser Beam fired!");
-        }
-
-        function activateQuantumLeap() {
-            const teleportDistance = 200 * upgrades[UPGRADE_TYPES.QUANTUM_LEAP].level;
-            enemies.forEach(enemy => {
-                const angle = Math.random() * Math.PI * 2;
-                enemy.x += Math.cos(angle) * teleportDistance;
-                enemy.y += Math.sin(angle) * teleportDistance;
-                enemy.x = Math.max(0, Math.min(width, enemy.x));
-                enemy.y = Math.max(0, Math.min(height, enemy.y));
-            });
-            for (let i = 0; i < 100; i++) {
-                particles.push(createParticle(Math.random() * width, Math.random() * height, '#00ffff', 2, 8));
-            }
-            addLogMessage("Quantum Leap activated! Enemies teleported.");
-        }
-
-        function activateMeteorShower() {
-            const meteorCount = 10 * upgrades[UPGRADE_TYPES.METEOR_SHOWER].level;
-            for (let i = 0; i < meteorCount; i++) {
-                meteors.push(createMeteor());
-            }
-            addLogMessage("Meteor Shower incoming!");
         }
 
         function activateSpecialAbility() {
@@ -813,17 +771,24 @@
                 randomAbility.action();
             } else {
                 // Fallback to original special ability if no new abilities are unlocked
-                enemies.forEach(enemy => {
-                    enemy.health -= 50 * level;
-                    if (enemy.health <= 0) {
-                        enemies = enemies.filter(e => e !== enemy);
-                        let pointsGained = 20 * level;
-                        if (playerCharacter instanceof Shotgunner) {
-                            pointsGained /= 2;
-                        }
-                        points += pointsGained;
+                if (isBossMode) {
+                    boss.health -= 500;
+                    if (boss.health <= 0) {
+                        gameOver(true);
                     }
-                });
+                } else {
+                    enemies.forEach(enemy => {
+                        enemy.health -= 50 * level;
+                        if (enemy.health <= 0) {
+                            enemies = enemies.filter(e => e !== enemy);
+                            let pointsGained = 20 * level;
+                            if (playerCharacter instanceof DefaultCharacter) {
+                                pointsGained *= 2;
+                            }
+                            points += pointsGained;
+                        }
+                    });
+                }
                 for (let i = 0; i < 50; i++) {
                     particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
                 }
@@ -844,30 +809,27 @@
                 ctx.globalAlpha = 1;
             });
 
-            enemies.forEach(enemy => {
-                ctx.beginPath();
-                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
-                ctx.fillStyle = enemy.color;
-                ctx.fill();
+            if (isBossMode) {
+                boss.draw();
+            } else {
+                enemies.forEach(enemy => {
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = enemy.color;
+                    ctx.fill();
 
-                // Health bar
-                ctx.fillStyle = 'red';
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 5);
-                ctx.fillStyle = 'green';
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, (enemy.health / enemy.maxHealth) * enemy.radius * 2, 5);
-            });
+                    // Health bar
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 5);
+                    ctx.fillStyle = 'green';
+                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, (enemy.health / enemy.maxHealth) * enemy.radius * 2, 5);
+                });
+            }
 
             projectiles.forEach(projectile => {
                 ctx.beginPath();
                 ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
                 ctx.fillStyle = projectile.color;
-                ctx.fill();
-            });
-
-            meteors.forEach(meteor => {
-                ctx.beginPath();
-                ctx.arc(meteor.x, meteor.y, meteor.radius, 0, Math.PI * 2);
-                ctx.fillStyle = meteor.color;
                 ctx.fill();
             });
 
@@ -952,21 +914,25 @@
             if (isGameOver) return;
 
             updateParticles();
-            updateEnemies();
+            if (isBossMode) {
+                boss.update();
+            } else {
+                updateEnemies();
+            }
             updateProjectiles();
-            updateMeteors();
             updateTimeStop();
             playerCharacter.update();
             draw();
             updateUI();
 
-            if (!isTimeStopActive && Math.random() < 0.02 + level * 0.002 * difficulty) {
+            if (!isTimeStopActive && !isBossMode && Math.random() < 0.02 + level * 0.002 * difficulty) {
                 enemies.push(createEnemy());
             }
 
             const currentTime = Date.now();
-            if (currentTime - lastPowerMeterIncrease >= 100) { // Increase power meter every 100ms
-                powerMeter = Math.min(100, powerMeter + 0.09); // Slightly slower increase
+            if (currentTime - lastPowerMeterIncrease >= 100) {
+                const powerMeterIncreaseRate = playerCharacter instanceof DefaultCharacter ? 0.15 : 0.09;
+                powerMeter = Math.min(100, powerMeter + powerMeterIncreaseRate);
                 lastPowerMeterIncrease = currentTime;
             }
 
@@ -1007,64 +973,76 @@
                 if (!isHackEnabled) points -= upgrade.cost;
                 upgrade.level++;
                 upgrade.cost = Math.floor(upgrade.cost * upgradeDefinitions.find(u => u.type === type).scaling);
+                
+                if (type === UPGRADE_TYPES.BOUNCE && playerCharacter instanceof Shotgunner) {
+                    playerCharacter.bounceCount = upgrade.level;
+                } else if (type === UPGRADE_TYPES.DOUBLE_POINTS && playerCharacter instanceof DefaultCharacter) {
+                    playerCharacter.doublePointsActive = true;
+                } else if (type === UPGRADE_TYPES.STEALTH_DURATION && playerCharacter instanceof Assassin) {
+                    playerCharacter.stealthDuration = 3000 + 1000 * upgrade.level;
+                }
+                
                 showUpgradeMenu();
                 addLogMessage(`Upgraded ${upgradeDefinitions.find(u => u.type === type).name} to level ${upgrade.level}`);
             }
         }
 
-        function gameOver() {
+        function gameOver(victory = false) {
             isGameOver = true;
             cancelAnimationFrame(animationFrameId);
             gameOverScreen.style.display = 'flex';
             finalScoreDisplay.textContent = Math.floor(points);
-            addLogMessage("Game Over! Final score: " + Math.floor(points));
+            if (victory) {
+                addLogMessage("Congratulations! You defeated the boss!");
+            } else {
+                addLogMessage("Game Over! Final score: " + Math.floor(points));
+            }
             submitScore(Math.floor(points));
         }
 
         function restartGame() {
             isGameOver = false;
             gameOverScreen.style.display = 'none';
-            characterSelect.style.display = 'flex';
+            modeSelect.style.display = 'flex';
             level = 1;
             points = 0;
             powerMeter = 0;
             enemies = [];
             projectiles = [];
             particles = [];
-            meteors = [];
+            boss = null;
+            isBossMode = false;
             initializeUpgrades();
             document.getElementById('gameLog').innerHTML = '';
+            document.getElementById('bossMeter').style.display = 'none';
             addLogMessage("New game started!");
         }
 
-        function setDifficulty(difficultyLevel) {
-            console.log("Setting difficulty to: " + difficultyLevel);
-            switch(difficultyLevel) {
-                case 'easy':
-                    difficulty = 0.5;
-                    break;
-                case 'normal':
-                    difficulty = 1;
-                    break;
-                                case 'hard':
-                    difficulty = 2;
-                    break;
-            }
-            titleScreen.style.display = 'none';
+                function setGameMode(mode) {
+            isBossMode = mode === 'boss';
+            modeSelect.style.display = 'none';
             characterSelect.style.display = 'flex';
+            if (isBossMode) {
+                document.getElementById('bossMeter').style.display = 'block';
+                boss = new Boss();
+                playerCharacter = new Assassin(); // Force Assassin for boss mode
+                startGame();
+            }
         }
 
         function selectCharacter(characterType) {
-            switch(characterType) {
-                case 'default':
-                    playerCharacter = new DefaultCharacter();
-                    break;
-                case 'shotgunner':
-                    playerCharacter = new Shotgunner();
-                    break;
-                case 'assassin':
-                    playerCharacter = new Assassin();
-                    break;
+            if (!isBossMode) {
+                switch(characterType) {
+                    case 'default':
+                        playerCharacter = new DefaultCharacter();
+                        break;
+                    case 'shotgunner':
+                        playerCharacter = new Shotgunner();
+                        break;
+                    case 'assassin':
+                        playerCharacter = new Assassin();
+                        break;
+                }
             }
             characterSelect.style.display = 'none';
             startGame();
@@ -1094,53 +1072,22 @@
 
             window.addEventListener('resize', resizeCanvas);
             canvas.addEventListener('click', shoot);
-            canvas.addEventListener('mousedown', () => {
-                if (playerCharacter instanceof Shotgunner) {
-                    playerCharacter.startHold();
-                } else if (playerCharacter instanceof DefaultCharacter) {
-                    playerCharacter.startChargeShot();
-                }
-            });
-            canvas.addEventListener('mouseup', () => {
-                if (playerCharacter instanceof Shotgunner) {
-                    playerCharacter.releaseHold();
-                } else if (playerCharacter instanceof DefaultCharacter) {
-                    if (playerCharacter.releaseChargeShot()) {
-                        shoot({ clientX: centerX, clientY: centerY });
-                    }
-                }
-            });
             upgradeBtn.addEventListener('click', showUpgradeMenu);
             timeStopBtn.addEventListener('click', activateTimeStop);
             window.addEventListener('keydown', function(event) {
                 if (event.key === '9') {
                     enableHacks();
                 } else if (playerCharacter instanceof Assassin) {
-                    switch(event.key) {
-                        case 'ArrowLeft':
-                            playerCharacter.move('left');
-                            break;
-                        case 'ArrowRight':
-                            playerCharacter.move('right');
-                            break;
-                        case 'ArrowUp':
-                            playerCharacter.move('up');
-                            break;
-                        case 'ArrowDown':
-                            playerCharacter.move('down');
-                            break;
-                        case 'Shift':
-                            playerCharacter.dash(Math.atan2(event.clientY - centerY, event.clientX - centerX));
-                            break;
-                        case 'Control':
-                            playerCharacter.toggleStealth();
-                            break;
+                    if (event.key === 'Shift') {
+                        playerCharacter.teleport();
+                    } else if (event.key === 'Control') {
+                        playerCharacter.toggleStealth();
                     }
                 }
             });
 
             setInterval(() => {
-                if (!isGameOver && !isPaused) {
+                if (!isGameOver && !isPaused && !isBossMode) {
                     level++;
                     timeStopMaxUses = Math.min(5, Math.floor(level / 5) + 1);
                     timeStopUsesLeft = Math.min(timeStopUsesLeft + 1, timeStopMaxUses);
@@ -1165,7 +1112,7 @@
         function submitScore(score) {
             const playerName = filterOffensiveWords(prompt("Enter your name for the leaderboard:"));
             if (playerName) {
-                const scoreData = { name: playerName, score: score, character: playerCharacter.name };
+                const scoreData = { name: playerName, score: score, character: playerCharacter.name, mode: isBossMode ? 'Boss' : 'Survival' };
                 
                 // In a real implementation, you would send this data to a server
                 // For this example, we'll use localStorage to simulate server storage
@@ -1184,14 +1131,17 @@
             leaderboardDiv.innerHTML = '<h3>Leaderboard</h3>';
             leaderboard.forEach((entry, index) => {
                 const scoreEntry = document.createElement('p');
-                scoreEntry.textContent = `${index + 1}. ${entry.name}: ${entry.score} (${entry.character})`;
+                scoreEntry.textContent = `${index + 1}. ${entry.name}: ${entry.score} (${entry.character} - ${entry.mode})`;
                 leaderboardDiv.appendChild(scoreEntry);
             });
         }
 
-        easyBtn.addEventListener('click', () => setDifficulty('easy'));
-        normalBtn.addEventListener('click', () => setDifficulty('normal'));
-        hardBtn.addEventListener('click', () => setDifficulty('hard'));
+        startBtn.addEventListener('click', () => {
+            titleScreen.style.display = 'none';
+            modeSelect.style.display = 'flex';
+        });
+        survivalBtn.addEventListener('click', () => setGameMode('survival'));
+        bossBtn.addEventListener('click', () => setGameMode('boss'));
         defaultBtn.addEventListener('click', () => selectCharacter('default'));
         shotgunnerBtn.addEventListener('click', () => selectCharacter('shotgunner'));
         assassinBtn.addEventListener('click', () => selectCharacter('assassin'));
