@@ -51,7 +51,7 @@
             background-color: #00ffff;
             transform: scale(1.1);
         }
-        #powerMeter, #bossMeter {
+        #powerMeter, #bossMeter, #staminaMeter {
             position: absolute;
             bottom: 10px;
             left: 50%;
@@ -65,13 +65,19 @@
             bottom: 40px;
             border-color: #f00;
         }
-        #powerFill, #bossFill {
+        #staminaMeter {
+            bottom: 70px;
+            border-color: #0f0;
+            display: none;
+        }
+        #powerFill, #bossFill, #staminaFill {
             width: 0%;
             height: 100%;
             transition: width 0.3s;
         }
         #powerFill { background: #0ff; }
         #bossFill { background: #f00; }
+        #staminaFill { background: #0f0; }
         #gameOver, #titleScreen, #characterSelect, #modeSelect {
             position: absolute;
             top: 0;
@@ -170,6 +176,7 @@
     </div>
     <div id="powerMeter"><div id="powerFill"></div></div>
     <div id="bossMeter" style="display: none;"><div id="bossFill"></div></div>
+    <div id="staminaMeter" style="display: none;"><div id="staminaFill"></div></div>
     <div id="gameOver" style="display: none;">
         <h2>Game Over</h2>
         <p>Your Score: <span id="finalScore"></span></p>
@@ -190,6 +197,7 @@
         const ctx = canvas.getContext('2d');
         const powerFill = document.getElementById('powerFill');
         const bossFill = document.getElementById('bossFill');
+        const staminaFill = document.getElementById('staminaFill');
         const gameOverScreen = document.getElementById('gameOver');
         const finalScoreDisplay = document.getElementById('finalScore');
         const restartBtn = document.getElementById('restartBtn');
@@ -221,7 +229,7 @@
         let powerMeter = 0;
         let isGameOver = false;
         let lastShotTime = 0;
-        let difficulty = .7;
+        let difficulty = .5;
         let isPaused = false;
         let isHackEnabled = false;
         let animationFrameId = null;
@@ -252,7 +260,8 @@
             METEOR_SHOWER: 'meteorShower',
             BOUNCE: 'bounce',
             DOUBLE_POINTS: 'doublePoints',
-            STEALTH_DURATION: 'stealthDuration'
+            STEALTH_DURATION: 'stealthDuration',
+            ASSASSIN_STAMINA: 'assassinStamina'
         };
 
         const upgradeDefinitions = [
@@ -272,7 +281,8 @@
             { type: UPGRADE_TYPES.METEOR_SHOWER, name: 'Meteor Shower', baseCost: 1200, scaling: 5.5 },
             { type: UPGRADE_TYPES.BOUNCE, name: 'Bouncing Projectiles (Shotgunner)', baseCost: 100, scaling: 2 },
             { type: UPGRADE_TYPES.DOUBLE_POINTS, name: 'Double Points (Default)', baseCost: 200, scaling: 2.5 },
-            { type: UPGRADE_TYPES.STEALTH_DURATION, name: 'Increase Stealth Duration (Assassin)', baseCost: 150, scaling: 2.2 }
+            { type: UPGRADE_TYPES.STEALTH_DURATION, name: 'Increase Stealth Duration (Assassin)', baseCost: 150, scaling: 2.2 },
+            { type: UPGRADE_TYPES.ASSASSIN_STAMINA, name: 'Increase Assassin Stamina', baseCost: 100, scaling: 1.5 }
         ];
 
         class Character {
@@ -312,7 +322,7 @@
         class DefaultCharacter extends Character {
             constructor() {
                 super('Default', 10, 500, 5);
-                this.doublePointsActive = false;
+                this.doublePointsActive =false;
             }
 
             shoot(x, y, targetX, targetY) {
@@ -366,6 +376,32 @@
                 this.stealthDuration = 3000;
                 this.isStealthActive = false;
                 this.lastStealthTime = 0;
+                this.maxStamina = 100;
+                this.currentStamina = 100;
+                this.staminaRegenRate = 1;
+                this.moveCost = 5;
+            }
+
+            move(direction) {
+                if (this.currentStamina >= this.moveCost) {
+                    switch(direction) {
+                        case 'left':
+                            centerX -= this.moveSpeed;
+                            break;
+                        case 'right':
+                            centerX += this.moveSpeed;
+                            break;
+                        case 'up':
+                            centerY -= this.moveSpeed;
+                            break;
+                        case 'down':
+                            centerY += this.moveSpeed;
+                            break;
+                    }
+                    centerX = Math.max(30, Math.min(width - 30, centerX));
+                    centerY = Math.max(30, Math.min(height - 30, centerY));
+                    this.currentStamina -= this.moveCost;
+                }
             }
 
             teleport() {
@@ -397,17 +433,20 @@
             }
 
             update() {
+                this.currentStamina = Math.min(this.maxStamina, this.currentStamina + this.staminaRegenRate);
+                staminaFill.style.width = `${(this.currentStamina / this.maxStamina) * 100}%`;
+                
                 const currentTime = Date.now();
                 const teleportCooldownRemaining = Math.max(0, this.teleportCooldown - (currentTime - this.lastTeleportTime));
                 const stealthCooldownRemaining = Math.max(0, this.teleportCooldown - (currentTime - this.lastStealthTime));
                 
                 if (this.isStealthActive) {
                     const stealthTimeRemaining = Math.max(0, this.stealthDuration - (currentTime - this.lastStealthTime));
-                    abilityIndicator.textContent = `Stealth: ${Math.floor(stealthTimeRemaining / 1000)}s`;
+                    abilityIndicator.textContent = `Stealth: ${Math.floor(stealthTimeRemaining / 1000)}s | Stamina: ${Math.floor(this.currentStamina)}/${this.maxStamina}`;
                 } else if (teleportCooldownRemaining === 0 && stealthCooldownRemaining === 0) {
-                    abilityIndicator.textContent = 'Teleport & Stealth: Ready';
+                    abilityIndicator.textContent = `Teleport & Stealth: Ready | Stamina: ${Math.floor(this.currentStamina)}/${this.maxStamina}`;
                 } else {
-                    abilityIndicator.textContent = `Teleport: ${Math.ceil(teleportCooldownRemaining / 1000)}s | Stealth: ${Math.ceil(stealthCooldownRemaining / 1000)}s`;
+                    abilityIndicator.textContent = `Teleport: ${Math.ceil(teleportCooldownRemaining / 1000)}s | Stealth: ${Math.ceil(stealthCooldownRemaining / 1000)}s | Stamina: ${Math.floor(this.currentStamina)}/${this.maxStamina}`;
                 }
             }
         }
@@ -427,6 +466,11 @@
                     this.bulletHellAttack,
                     this.shockwaveAttack
                 ];
+                this.initialInvulnerabilityDuration = 3000; // 3 seconds
+                this.playerInvulnerable = true;
+                setTimeout(() => {
+                    this.playerInvulnerable = false;
+                }, this.initialInvulnerabilityDuration);
             }
 
             update() {
@@ -457,7 +501,7 @@
 
                 // Damage calculation
                 if (Math.abs(angle - Math.atan2(centerY - this.y, centerX - this.x)) < Math.PI / 8) {
-                    if (!playerCharacter.isStealthActive) {
+                    if (!playerCharacter.isStealthActive && !this.playerInvulnerable) {
                         gameOver();
                     }
                 }
@@ -500,7 +544,7 @@
                     }
 
                     const distToPlayer = Math.hypot(centerX - this.x, centerY - this.y);
-                    if (Math.abs(distToPlayer - shockwave.radius) < 20 && !playerCharacter.isStealthActive) {
+                    if (Math.abs(distToPlayer - shockwave.radius) < 20 && !playerCharacter.isStealthActive && !this.playerInvulnerable) {
                         gameOver();
                     }
                 }, 16);
@@ -602,7 +646,7 @@
                             for (let i = 0; i < 8; i++) {
                                 particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
                             }
-                        } else if (!playerCharacter.isStealthActive) {
+                        } else if (!playerCharacter.isStealthActive && !(isBossMode && boss.playerInvulnerable)) {
                             gameOver();
                         }
                     }
@@ -643,7 +687,7 @@
 
                     if (target) {
                         const angle = Math.atan2(target.y - projectile.y, target.x - projectile.x);
-                        const homingStrength = 0.1 * upgrades[UPGRADE_TYPES.HOMING].level;
+                        const homingStrength = 0.05 * upgrades[UPGRADE_TYPES.HOMING].level; // Reduced from 0.1
                         projectile.velocity.x += Math.cos(angle) * homingStrength;
                         projectile.velocity.y += Math.sin(angle) * homingStrength;
                         
@@ -758,42 +802,48 @@
         }
 
         function activateSpecialAbility() {
-            const abilities = [
-                { name: "Black Hole", condition: upgrades[UPGRADE_TYPES.BLACK_HOLE].level > 0, action: activateBlackHole },
-                { name: "Laser Beam", condition: upgrades[UPGRADE_TYPES.LASER_BEAM].level > 0, action: activateLaserBeam },
-                { name: "Quantum Leap", condition: upgrades[UPGRADE_TYPES.QUANTUM_LEAP].level > 0, action: activateQuantumLeap },
-                { name: "Meteor Shower", condition: upgrades[UPGRADE_TYPES.METEOR_SHOWER].level > 0, action: activateMeteorShower }
-            ];
+            try {
+                const abilities = [
+                    { name: "Black Hole", condition: upgrades[UPGRADE_TYPES.BLACK_HOLE].level > 0, action: activateBlackHole },
+                    { name: "Laser Beam", condition: upgrades[UPGRADE_TYPES.LASER_BEAM].level > 0, action: activateLaserBeam },
+                    { name: "Quantum Leap", condition: upgrades[UPGRADE_TYPES.QUANTUM_LEAP].level > 0, action: activateQuantumLeap },
+                    { name: "Meteor Shower", condition: upgrades[UPGRADE_TYPES.METEOR_SHOWER].level > 0, action: activateMeteorShower }
+                ];
 
-            const availableAbilities = abilities.filter(ability => ability.condition);
-            if (availableAbilities.length > 0) {
-                const randomAbility = availableAbilities[Math.floor(Math.random() * availableAbilities.length)];
-                randomAbility.action();
-            } else {
-                // Fallback to original special ability if no new abilities are unlocked
-                if (isBossMode) {
-                    boss.health -= 500;
-                    if (boss.health <= 0) {
-                        gameOver(true);
-                    }
+                const availableAbilities = abilities.filter(ability => ability.condition);
+                if (availableAbilities.length > 0) {
+                    const randomAbility = availableAbilities[Math.floor(Math.random() * availableAbilities.length)];
+                    randomAbility.action();
                 } else {
-                    enemies.forEach(enemy => {
-                        enemy.health -= 50 * level;
-                        if (enemy.health <= 0) {
-                            enemies = enemies.filter(e => e !== enemy);
-                            let pointsGained = 20 * level;
-                            if (playerCharacter instanceof DefaultCharacter) {
-                                pointsGained *= 2;
-                            }
-                            points += pointsGained;
+                    // Fallback to original special ability if no new abilities are unlocked
+                    if (isBossMode) {
+                        boss.health -= 500;
+                        if (boss.health <= 0) {
+                            gameOver(true);
                         }
-                    });
+                    } else {
+                        enemies.forEach(enemy => {
+                            enemy.health -= 50 * level;
+                            if (enemy.health <= 0) {
+                                enemies = enemies.filter(e => e !== enemy);
+                                let pointsGained = 20 * level;
+                                if (playerCharacter instanceof DefaultCharacter) {
+                                    pointsGained *= 2;
+                                }
+                                points += pointsGained;
+                            }
+                        });
+                    }
+                    for (let i = 0; i < 50; i++) {
+                        particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
+                    }
+                    addLogMessage("Special ability activated!");
                 }
-                for (let i = 0; i < 50; i++) {
-                    particles.push(createParticle(Math.random() * width, Math.random() * height, '#f0f', 4, 8));
-                }
-                addLogMessage("Special ability activated!");
+            } catch (error) {
+                console.error("Error activating special ability:", error);
+                addLogMessage("Special ability failed to activate. Please try again.");
             }
+            powerMeter = 0; // Reset power meter even if there's an error
         }
 
         function draw() {
@@ -938,7 +988,6 @@
 
             if (powerMeter === 100) {
                 activateSpecialAbility();
-                powerMeter = 0;
             }
 
             dps = projectiles.length * playerCharacter.baseDamage * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
@@ -980,6 +1029,9 @@
                     playerCharacter.doublePointsActive = true;
                 } else if (type === UPGRADE_TYPES.STEALTH_DURATION && playerCharacter instanceof Assassin) {
                     playerCharacter.stealthDuration = 3000 + 1000 * upgrade.level;
+                } else if (type === UPGRADE_TYPES.ASSASSIN_STAMINA && playerCharacter instanceof Assassin) {
+                    playerCharacter.maxStamina += 20;
+                    playerCharacter.currentStamina = playerCharacter.maxStamina;
                 }
                 
                 showUpgradeMenu();
@@ -1015,18 +1067,21 @@
             initializeUpgrades();
             document.getElementById('gameLog').innerHTML = '';
             document.getElementById('bossMeter').style.display = 'none';
+            document.getElementById('staminaMeter').style.display = 'none';
             addLogMessage("New game started!");
         }
 
-                function setGameMode(mode) {
+        function setGameMode(mode) {
             isBossMode = mode === 'boss';
             modeSelect.style.display = 'none';
-            characterSelect.style.display = 'flex';
             if (isBossMode) {
                 document.getElementById('bossMeter').style.display = 'block';
                 boss = new Boss();
                 playerCharacter = new Assassin(); // Force Assassin for boss mode
+                document.getElementById('staminaMeter').style.display = 'block';
                 startGame();
+            } else {
+                characterSelect.style.display = 'flex';
             }
         }
 
@@ -1041,6 +1096,7 @@
                         break;
                     case 'assassin':
                         playerCharacter = new Assassin();
+                        document.getElementById('staminaMeter').style.display = 'block';
                         break;
                 }
             }
@@ -1078,10 +1134,25 @@
                 if (event.key === '9') {
                     enableHacks();
                 } else if (playerCharacter instanceof Assassin) {
-                    if (event.key === 'Shift') {
-                        playerCharacter.teleport();
-                    } else if (event.key === 'Control') {
-                        playerCharacter.toggleStealth();
+                    switch(event.key) {
+                        case 'ArrowLeft':
+                            playerCharacter.move('left');
+                            break;
+                        case 'ArrowRight':
+                            playerCharacter.move('right');
+                            break;
+                        case 'ArrowUp':
+                            playerCharacter.move('up');
+                            break;
+                        case 'ArrowDown':
+                            playerCharacter.move('down');
+                            break;
+                        case 'Shift':
+                            playerCharacter.teleport();
+                            break;
+                        case 'Control':
+                            playerCharacter.toggleStealth();
+                            break;
                     }
                 }
             });
