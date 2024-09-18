@@ -181,6 +181,7 @@
         let difficulty = 1;
         let isPaused = false;
         let isHackEnabled = false;
+        let animationFrameId = null;
 
         const UPGRADE_TYPES = {
             DAMAGE: 'damage',
@@ -343,7 +344,6 @@
 
                     if (closestEnemy) {
                         const angle = Math.atan2(closestEnemy.y - projectile.y, closestEnemy.x - projectile.x);
-                        const homingStrength = 0.3 * upgrades[UPGRADE_TYPES.HOMING].level;
                         const homingStrength = 0.3 * upgrades[UPGRADE_TYPES.HOMING].level;
                         projectile.velocity.x = projectile.velocity.x * (1 - homingStrength) + Math.cos(angle) * homingStrength * 5;
                         projectile.velocity.y = projectile.velocity.y * (1 - homingStrength) + Math.sin(angle) * homingStrength * 5;
@@ -605,7 +605,7 @@
         }
 
         function gameLoop() {
-            if (isGameOver || isPaused) return;
+            if (isGameOver) return;
 
             updateParticles();
             updateEnemies();
@@ -627,7 +627,7 @@
 
             dps = projectiles.length * 10 * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
 
-            requestAnimationFrame(gameLoop);
+            animationFrameId = requestAnimationFrame(gameLoop);
         }
 
         function showUpgradeMenu() {
@@ -644,11 +644,11 @@
             closeButton.textContent = 'Close';
             closeButton.onclick = () => {
                 upgradeMenu.style.display = 'none';
-                togglePause();
+                resumeGame();
             };
             upgradeMenu.appendChild(closeButton);
             upgradeMenu.style.display = 'block';
-            togglePause();
+            pauseGame();
         }
 
         function purchaseUpgrade(type) {
@@ -664,6 +664,7 @@
 
         function gameOver() {
             isGameOver = true;
+            cancelAnimationFrame(animationFrameId);
             gameOverScreen.style.display = 'flex';
             finalScoreDisplay.textContent = Math.floor(points);
             addLogMessage("Game Over! Final score: " + Math.floor(points));
@@ -679,14 +680,15 @@
             enemies = [];
             projectiles = [];
             particles = [];
-            meteors = [];
+            meteors= [];
             initializeUpgrades();
-                        document.getElementById('gameLog').innerHTML = '';
+            document.getElementById('gameLog').innerHTML = '';
             addLogMessage("New game started!");
             gameLoop();
         }
 
         function setDifficulty(difficultyLevel) {
+            console.log("Setting difficulty to: " + difficultyLevel);
             switch(difficultyLevel) {
                 case 'easy':
                     difficulty = 0.5;
@@ -708,13 +710,16 @@
             addLogMessage("Hacks enabled! 1,000,000 points added.");
         }
 
-        function togglePause() {
-            isPaused = !isPaused;
-            if (isPaused) {
-                canvas.classList.add('paused');
-            } else {
-                canvas.classList.remove('paused');
-            }
+        function pauseGame() {
+            isPaused = true;
+            cancelAnimationFrame(animationFrameId);
+            canvas.classList.add('paused');
+        }
+
+        function resumeGame() {
+            isPaused = false;
+            canvas.classList.remove('paused');
+            gameLoop();
         }
 
         function startGame() {
