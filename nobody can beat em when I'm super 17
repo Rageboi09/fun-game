@@ -67,7 +67,7 @@
             background: #0ff;
             transition: width 0.3s;
         }
-        #gameOver, #titleScreen {
+        #gameOver, #titleScreen, #characterSelect {
             position: absolute;
             top: 0;
             left: 0;
@@ -80,7 +80,7 @@
             align-items: center;
             z-index: 1000;
         }
-        #gameOver h2, #titleScreen h1 {
+        #gameOver h2, #titleScreen h1, #characterSelect h2 {
             font-size: 48px;
             margin-bottom: 20px;
             text-align: center;
@@ -123,6 +123,19 @@
             overflow-y: auto;
             display: none;
         }
+        #timeStopBtn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 10;
+        }
+        #cooldownIndicator {
+            position: absolute;
+            bottom: 50px;
+            right: 10px;
+            font-size: 14px;
+            color: #0ff;
+        }
     </style>
 </head>
 <body>
@@ -131,6 +144,12 @@
         <button id="easyBtn" class="button">Easy</button>
         <button id="normalBtn" class="button">Normal</button>
         <button id="hardBtn" class="button">Hard</button>
+    </div>
+    <div id="characterSelect" style="display: none;">
+        <h2>Choose Your Character</h2>
+        <button id="defaultBtn" class="button">Default</button>
+        <button id="shotgunnerBtn" class="button">Shotgunner</button>
+        <button id="assassinBtn" class="button">Assassin</button>
     </div>
     <canvas id="gameCanvas"></canvas>
     <div id="ui">
@@ -149,6 +168,8 @@
     <button id="leaderboardBtn" class="button" style="position: absolute; top: 50px; right: 10px;">Leaderboard</button>
     <button id="upgradeBtn" class="button" style="position: absolute; top: 90px; right: 10px;">Upgrades</button>
     <div id="upgradeMenu"></div>
+    <button id="timeStopBtn" class="button">Time Stop</button>
+    <div id="cooldownIndicator"></div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
@@ -158,13 +179,18 @@
         const finalScoreDisplay = document.getElementById('finalScore');
         const restartBtn = document.getElementById('restartBtn');
         const titleScreen = document.getElementById('titleScreen');
+        const characterSelect = document.getElementById('characterSelect');
         const easyBtn = document.getElementById('easyBtn');
         const normalBtn = document.getElementById('normalBtn');
         const hardBtn = document.getElementById('hardBtn');
+        const defaultBtn = document.getElementById('defaultBtn');
+        const shotgunnerBtn = document.getElementById('shotgunnerBtn');
+        const assassinBtn = document.getElementById('assassinBtn');
         const leaderboardDiv = document.getElementById('leaderboard');
         const leaderboardBtn = document.getElementById('leaderboardBtn');
         const upgradeBtn = document.getElementById('upgradeBtn');
         const upgradeMenu = document.getElementById('upgradeMenu');
+        const timeStopBtn = document.getElementById('timeStopBtn');
 
         let width, height, centerX, centerY;
         let particles = [];
@@ -182,6 +208,13 @@
         let isPaused = false;
         let isHackEnabled = false;
         let animationFrameId = null;
+        let isTimeStopActive = false;
+        let timeStopCooldown = 0;
+        let timeStopDuration = 5000; // 5 seconds
+        let timeStopMaxUses = 1;
+        let timeStopUsesLeft = 1;
+        let lastPowerMeterIncrease = Date.now();
+        let playerCharacter = null;
 
         const UPGRADE_TYPES = {
             DAMAGE: 'damage',
@@ -216,6 +249,84 @@
             { type: UPGRADE_TYPES.QUANTUM_LEAP, name: 'Quantum Leap Drive', baseCost: 1000, scaling: 5 },
             { type: UPGRADE_TYPES.METEOR_SHOWER, name: 'Meteor Shower', baseCost: 1200, scaling: 5.5 }
         ];
+
+        class DefaultCharacter {
+            constructor() {
+                this.name = 'Default';
+                this.baseDamage = 10;
+                this.fireRate = 500;
+                this.projectileSpeed = 5;
+            }
+
+            shoot(x, y, angle) {
+                return createProjectile(x, y, angle, this.baseDamage, this.projectileSpeed);
+            }
+        }
+
+        class Shotgunner {
+            constructor() {
+                this.name = 'Shotgunner';
+                this.baseDamage = 5;
+                this.fireRate = 300;
+                this.projectileSpeed = 4;
+                this.holdDuration = 1000;
+                this.holdStartTime = 0;
+                this.isHolding = false;
+            }
+
+            shoot(x, y, angle) {
+                if (this.isHolding && Date.now() - this.holdStartTime >= this.holdDuration) {
+                    const projectiles = [];
+                    for (let i = -2; i <= 2; i++) {
+                        projectiles.push(createProjectile(x, y, angle + i * 10, this.baseDamage, this.projectileSpeed));
+                    }
+                    return projectiles;
+                }
+                return null;
+            }
+
+            startHold() {
+                this.isHolding = true;
+                this.holdStartTime = Date.now();
+            }
+
+            releaseHold() {
+                this.isHolding = false;
+            }
+        }
+
+        class Assassin {
+            constructor() {
+                this.name = 'Assassin';
+                this.baseDamage = 3;
+                this.fireRate = 200;
+                this.projectileSpeed = 7;
+                this.moveSpeed = 5;
+            }
+
+            shoot(x, y, angle) {
+                return createProjectile(x, y, angle, this.baseDamage, this.projectileSpeed);
+            }
+
+            move(direction) {
+                switch(direction) {
+                    case 'left':
+                        centerX -= this.moveSpeed;
+                        break;
+                    case 'right':
+                        centerX += this.moveSpeed;
+                        break;
+                    case 'up':
+                        centerY -= this.moveSpeed;
+                        break;
+                    case 'down':
+                        centerY += this.moveSpeed;
+                        break;
+                }
+                centerX = Math.max(30, Math.min(width - 30, centerX));
+                centerY = Math.max(30, Math.min(height - 30, centerY));
+            }
+        }
 
         function initializeUpgrades() {
             upgradeDefinitions.forEach(upgrade => {
@@ -269,8 +380,7 @@
             };
         }
 
-        function createProjectile(x, y, angle) {
-            const speed = 5 * (1 + 0.1 * upgrades[UPGRADE_TYPES.PROJECTILE_SPEED].level);
+        function createProjectile(x, y, angle, damage, speed) {
             return {
                 x, y, radius: 5,
                 velocity: {
@@ -278,7 +388,7 @@
                     y: Math.sin(angle) * speed
                 },
                 color: '#fff',
-                damage: 10 * (1 + 0.2 * upgrades[UPGRADE_TYPES.DAMAGE].level),
+                damage: damage * (1 + 0.2 * upgrades[UPGRADE_TYPES.DAMAGE].level),
                 pierceCount: upgrades[UPGRADE_TYPES.PIERCING].level + 1
             };
         }
@@ -308,22 +418,24 @@
         }
 
         function updateEnemies() {
-            const timeSlowFactor = 1 - (0.1 * upgrades[UPGRADE_TYPES.TIME_SLOW].level);
-            enemies.forEach((enemy, index) => {
-                enemy.x += enemy.velocity.x * timeSlowFactor;
-                enemy.y += enemy.velocity.y * timeSlowFactor;
+            if (!isTimeStopActive) {
+                const timeSlowFactor = 1 - (0.1 * upgrades[UPGRADE_TYPES.TIME_SLOW].level);
+                enemies.forEach((enemy, index) => {
+                    enemy.x += enemy.velocity.x * timeSlowFactor;
+                    enemy.y += enemy.velocity.y * timeSlowFactor;
 
-                if (Math.hypot(centerX - enemy.x, centerY - enemy.y) < enemy.radius + 30) {
-                    if (isHackEnabled || upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
-                        enemies.splice(index, 1);
-                        for (let i = 0; i < 8; i++) {
-                            particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
+                    if (Math.hypot(centerX - enemy.x, centerY - enemy.y) < enemy.radius + 30) {
+                        if (isHackEnabled || upgrades[UPGRADE_TYPES.SHIELD].level > 0) {
+                            enemies.splice(index, 1);
+                            for (let i = 0; i < 8; i++) {
+                                particles.push(createParticle(enemy.x, enemy.y, '#0ff'));
+                            }
+                        } else {
+                            gameOver();
                         }
-                    } else {
-                        gameOver();
                     }
-                }
-            });
+                });
+            }
         }
 
         function updateProjectiles() {
@@ -388,7 +500,11 @@
 
                         if (enemy.health <= 0) {
                             enemies.splice(eIndex, 1);
-                            points += 10 * level;
+                            let pointsGained = 10 * level;
+                            if (playerCharacter instanceof Shotgunner) {
+                                pointsGained /= 2;
+                            }
+                            points += pointsGained;
                             for (let i = 0; i < 8; i++) {
                                 particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
                             }
@@ -418,7 +534,11 @@
                         enemy.health -= meteor.damage;
                         if (enemy.health <= 0) {
                             enemies.splice(eIndex, 1);
-                            points += 10 * level;
+                            let pointsGained = 10 * level;
+                            if (playerCharacter instanceof Shotgunner) {
+                                pointsGained /= 2;
+                            }
+                            points += pointsGained;
                             for (let i = 0; i < 8; i++) {
                                 particles.push(createParticle(enemy.x, enemy.y, enemy.color, 3, 5));
                             }
@@ -430,16 +550,28 @@
 
         function shoot(event) {
             const currentTime = Date.now();
-            const fireRate = 500 / (1 + 0.1 * upgrades[UPGRADE_TYPES.FIRE_RATE].level);
+            const fireRate = playerCharacter.fireRate / (1 + 0.1 * upgrades[UPGRADE_TYPES.FIRE_RATE].level);
             if (currentTime - lastShotTime < fireRate) return;
 
             lastShotTime = currentTime;
 
             const angle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
             const multiShot = upgrades[UPGRADE_TYPES.MULTI_SHOT].level;
-            for (let i = 0; i < (multiShot + 1); i++) {
-                const spread = (Math.random() - 0.5) * 0.2 * multiShot;
-                projectiles.push(createProjectile(centerX, centerY, angle + spread));
+
+            if (playerCharacter instanceof Shotgunner) {
+                playerCharacter.startHold();
+                setTimeout(() => {
+                    const shotgunProjectiles = playerCharacter.shoot(centerX, centerY, angle);
+                    if (shotgunProjectiles) {
+                        projectiles.push(...shotgunProjectiles);
+                    }
+                    playerCharacter.releaseHold();
+                }, playerCharacter.holdDuration);
+            } else {
+                for (let i = 0; i < (multiShot + 1); i++) {
+                    const spread = (i - multiShot / 2) * (Math.PI / 18);
+                    projectiles.push(playerCharacter.shoot(centerX, centerY, angle + spread));
+                }
             }
         }
 
@@ -449,7 +581,11 @@
                 const dist = Math.hypot(centerX - enemy.x, centerY - enemy.y);
                 if (dist < blackHoleRadius) {
                     enemy.health = 0;
-                    points += 20 * level;
+                    let pointsGained = 20 * level;
+                    if (playerCharacter instanceof Shotgunner) {
+                        pointsGained /= 2;
+                    }
+                    points += pointsGained;
                 }
             });
             enemies = enemies.filter(enemy => enemy.health > 0);
@@ -518,7 +654,11 @@
                     enemy.health -= 50 * level;
                     if (enemy.health <= 0) {
                         enemies = enemies.filter(e => e !== enemy);
-                        points += 20 * level;
+                        let pointsGained = 20 * level;
+                        if (playerCharacter instanceof Shotgunner) {
+                            pointsGained /= 2;
+                        }
+                        points += pointsGained;
                     }
                 });
                 for (let i = 0; i < 50; i++) {
@@ -568,10 +708,11 @@
                 ctx.fill();
             });
 
-            // Draw cursor
+            // Draw player
             ctx.beginPath();
-            ctx.arc(centerX, centerY, 10, 0, Math.PI * 2);
-            ctx.fillStyle = '#0ff';
+            ctx.arc(centerX, centerY, 20, 0, Math.PI * 2);
+            ctx.fillStyle = playerCharacter instanceof Assassin ? '#ff00ff' : 
+                            playerCharacter instanceof Shotgunner ? '#ffa500' : '#0ff';
             ctx.fill();
 
             // Draw shield if active
@@ -604,6 +745,36 @@
             }
         }
 
+        function updateTimeStop() {
+            if (timeStopCooldown > 0) {
+                timeStopCooldown -= 16; // Assuming 60 FPS
+                if (timeStopCooldown <= 0) {
+                    timeStopCooldown = 0;
+                    timeStopUsesLeft = timeStopMaxUses;
+                }
+            }
+
+            document.getElementById('cooldownIndicator').textContent = 
+                timeStopUsesLeft > 0 ? `Time Stop: Ready (${timeStopUsesLeft} left)` : 
+                `Time Stop: Cooldown ${Math.ceil(timeStopCooldown / 1000)}s`;
+
+            timeStopBtn.disabled = timeStopUsesLeft === 0;
+        }
+
+        function activateTimeStop() {
+            if (timeStopUsesLeft > 0) {
+                isTimeStopActive = true;
+                timeStopUsesLeft--;
+                setTimeout(() => {
+                    isTimeStopActive = false;
+                    if (timeStopUsesLeft === 0) {
+                        timeStopCooldown = 30000; // 30 seconds cooldown
+                    }
+                }, timeStopDuration);
+                addLogMessage("Time Stop activated!");
+            }
+        }
+
         function gameLoop() {
             if (isGameOver) return;
 
@@ -611,21 +782,26 @@
             updateEnemies();
             updateProjectiles();
             updateMeteors();
+            updateTimeStop();
             draw();
             updateUI();
 
-            if (Math.random() < 0.02 + level * 0.002 * difficulty) {
+            if (!isTimeStopActive && Math.random() < 0.02 + level * 0.002 * difficulty) {
                 enemies.push(createEnemy());
             }
 
-            powerMeter = Math.min(100, powerMeter + 0.1);
+            const currentTime = Date.now();
+            if (currentTime - lastPowerMeterIncrease >= 100) { // Increase power meter every 100ms
+                powerMeter = Math.min(100, powerMeter + 0.09); // Slightly slower increase
+                lastPowerMeterIncrease = currentTime;
+            }
 
             if (powerMeter === 100) {
                 activateSpecialAbility();
                 powerMeter = 0;
             }
 
-            dps = projectiles.length * 10 * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
+            dps = projectiles.length * playerCharacter.baseDamage * (1 + 0.1 * upgrades[UPGRADE_TYPES.DAMAGE].level);
 
             animationFrameId = requestAnimationFrame(gameLoop);
         }
@@ -674,17 +850,17 @@
         function restartGame() {
             isGameOver = false;
             gameOverScreen.style.display = 'none';
+            characterSelect.style.display = 'flex';
             level = 1;
             points = 0;
             powerMeter = 0;
             enemies = [];
             projectiles = [];
             particles = [];
-            meteors= [];
+            meteors = [];
             initializeUpgrades();
             document.getElementById('gameLog').innerHTML = '';
             addLogMessage("New game started!");
-            gameLoop();
         }
 
         function setDifficulty(difficultyLevel) {
@@ -701,6 +877,22 @@
                     break;
             }
             titleScreen.style.display = 'none';
+            characterSelect.style.display = 'flex';
+        }
+
+        function selectCharacter(characterType) {
+            switch(characterType) {
+                case 'default':
+                    playerCharacter = new DefaultCharacter();
+                    break;
+                case 'shotgunner':
+                    playerCharacter = new Shotgunner();
+                    break;
+                case 'assassin':
+                    playerCharacter = new Assassin();
+                    break;
+            }
+            characterSelect.style.display = 'none';
             startGame();
         }
 
@@ -728,17 +920,45 @@
 
             window.addEventListener('resize', resizeCanvas);
             canvas.addEventListener('click', shoot);
+            canvas.addEventListener('mousedown', () => {
+                if (playerCharacter instanceof Shotgunner) {
+                    playerCharacter.startHold();
+                }
+            });
+            canvas.addEventListener('mouseup', () => {
+                if (playerCharacter instanceof Shotgunner) {
+                    playerCharacter.releaseHold();
+                }
+            });
             upgradeBtn.addEventListener('click', showUpgradeMenu);
+            timeStopBtn.addEventListener('click', activateTimeStop);
             window.addEventListener('keydown', function(event) {
                 if (event.key === '9') {
                     enableHacks();
+                } else if (playerCharacter instanceof Assassin) {
+                    switch(event.key) {
+                        case 'ArrowLeft':
+                            playerCharacter.move('left');
+                            break;
+                        case 'ArrowRight':
+                            playerCharacter.move('right');
+                            break;
+                        case 'ArrowUp':
+                            playerCharacter.move('up');
+                            break;
+                        case 'ArrowDown':
+                            playerCharacter.move('down');
+                            break;
+                    }
                 }
             });
 
             setInterval(() => {
                 if (!isGameOver && !isPaused) {
                     level++;
-                    addLogMessage(`Advanced to level ${level}!`);
+                    timeStopMaxUses = Math.min(5, Math.floor(level / 5) + 1);
+                    timeStopUsesLeft = Math.min(timeStopUsesLeft + 1, timeStopMaxUses);
+                    addLogMessage(`Advanced to level ${level}! Time Stop uses increased.`);
                 }
             }, 60000 / difficulty);
 
@@ -759,7 +979,7 @@
         function submitScore(score) {
             const playerName = filterOffensiveWords(prompt("Enter your name for the leaderboard:"));
             if (playerName) {
-                const scoreData = { name: playerName, score: score };
+                const scoreData = { name: playerName, score: score, character: playerCharacter.name };
                 
                 // In a real implementation, you would send this data to a server
                 // For this example, we'll use localStorage to simulate server storage
@@ -778,7 +998,7 @@
             leaderboardDiv.innerHTML = '<h3>Leaderboard</h3>';
             leaderboard.forEach((entry, index) => {
                 const scoreEntry = document.createElement('p');
-                scoreEntry.textContent = `${index + 1}. ${entry.name}: ${entry.score}`;
+                scoreEntry.textContent = `${index + 1}. ${entry.name}: ${entry.score} (${entry.character})`;
                 leaderboardDiv.appendChild(scoreEntry);
             });
         }
@@ -786,6 +1006,9 @@
         easyBtn.addEventListener('click', () => setDifficulty('easy'));
         normalBtn.addEventListener('click', () => setDifficulty('normal'));
         hardBtn.addEventListener('click', () => setDifficulty('hard'));
+        defaultBtn.addEventListener('click', () => selectCharacter('default'));
+        shotgunnerBtn.addEventListener('click', () => selectCharacter('shotgunner'));
+        assassinBtn.addEventListener('click', () => selectCharacter('assassin'));
         restartBtn.addEventListener('click', restartGame);
         leaderboardBtn.addEventListener('click', () => {
             leaderboardDiv.style.display = leaderboardDiv.style.display === 'none' ? 'block' : 'none';
