@@ -161,12 +161,6 @@
         <h2>Select Game Mode</h2>
         <button id="survivalBtn" class="button">Survival Mode</button>
 <button id="boss-mode">Boss Mode</button>
-<div id="boss-mode-container" style="display: none;">
-  <h2>Boss Mode</h2>
-  <div id="boss-health">Boss Health: <span id="boss-health-value">100</span>%</div>
-  <div id="boss-stage">Stage: <span id="boss-stage-value">1</span></div>
-  <button id="attack-boss">Attack Boss</button>
-</div>    
 </div>
     <div id="characterSelect" style="display: none;">
         <h2>Choose Your Character</h2>
@@ -175,7 +169,13 @@
         <button id="assassinBtn" class="button">Assassin</button>
     </div>
     <canvas id="gameCanvas"></canvas>
-    <div id="ui">
+    <div id="UI">
+<div id="boss-mode-container" style="display: none;">
+  <h2>Boss Mode</h2>
+  <div id="boss-health">Boss Health: <span id="boss-health-value">100</span>%</div>
+  <div id="boss-stage">Stage: <span id="boss-stage-value">1</span></div>
+  <button id="attack-boss">Attack Boss</button>
+</div>
         <div>Level: <span id="levelDisplay">1</span></div>
         <div>Points: <span id="pointsDisplay">0</span></div>
         <div>DPS: <span id="dpsDisplay">0</span></div>
@@ -348,7 +348,7 @@
             constructor() {
                 super('Shotgunner', 5, 1000, 6);
                 this.pelletCount = 8;
-                this.spreadAngle = Math.PI / 8;
+                this.spreadAngle = Math.PI / 8
                 this.bounceCount = 0;
             }
 
