@@ -160,8 +160,14 @@
     <div id="modeSelect" style="display: none;">
         <h2>Select Game Mode</h2>
         <button id="survivalBtn" class="button">Survival Mode</button>
-        <button id="bossBtn" class="button">Boss Mode</button>
-    </div>
+<button id="boss-mode">Boss Mode</button>
+<div id="boss-mode-container" style="display: none;">
+  <h2>Boss Mode</h2>
+  <div id="boss-health">Boss Health: <span id="boss-health-value">100</span>%</div>
+  <div id="boss-stage">Stage: <span id="boss-stage-value">1</span></div>
+  <button id="attack-boss">Attack Boss</button>
+</div>    
+</div>
     <div id="characterSelect" style="display: none;">
         <h2>Choose Your Character</h2>
         <button id="defaultBtn" class="button">Default</button>
@@ -1230,5 +1236,32 @@
             titleScreen.style.display = 'flex';
         };
     </script>
+<script>
+  document.getElementById('boss-mode').addEventListener('click', function() {
+    document.getElementById('game-modes').style.display = 'none';
+    document.getElementById('boss-mode-container').style.display = 'block';
+    initializeBossMode();
+  });
+
+  function initializeBossMode() {
+    let bossHealth = 100;
+    let bossStage = 1;
+    
+    document.getElementById('attack-boss').addEventListener('click', function() {
+      bossHealth -= 10;
+      if (bossHealth <= 0) {
+        bossStage++;
+        bossHealth = 100 + (bossStage * 50);
+        alert('Boss defeated! Moving to stage ' + bossStage);
+      }
+      updateBossUI();
+    });
+
+    function updateBossUI() {
+      document.getElementById('boss-health-value').textContent = bossHealth;
+      document.getElementById('boss-stage-value').textContent = bossStage;
+    }
+  }
+</script>
 </body>
 </html>
